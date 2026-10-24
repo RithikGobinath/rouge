@@ -131,7 +131,7 @@ test('point and ask: a plain-prose reply is still an answer, a blank one is an e
 test('point and ask: with no Anthropic key it uses Claude Code, then Gemini, and says which', async (t) => {
   let asked = null;
   const cli = { available: async () => true, ask: async (o) => { asked = o; return '{"kicker":"Explain","text":"From Claude Code.","confidence":0.8}'; } };
-  const first = await withAI(t, { claudeCode: cli });
+  const first = await withAI(t, { claudeCode: cli, settings: { useClaudeCode: true } });
   const r = await first.ai.explain({ crop: PNG, question: 'what is this?' });
   assert.equal(r.provider, 'claude-code');
   assert.equal(asked.images.length, 1);

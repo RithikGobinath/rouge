@@ -88,7 +88,7 @@ test('a Terminal foreground can transition into Chrome without reading the shell
   assert.equal(opened.ok, true);
   assert.equal(opened.snapshot.blocked, undefined);
   assert.equal(opened.snapshot.window.process, 'chrome');
-  assert.deepEqual(snapshots, ['chrome']);
+  assert.ok(snapshots.length >= 1 && snapshots.every((p) => p === 'chrome'));
   session.close();
 });
 

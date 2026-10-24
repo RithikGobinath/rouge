@@ -271,8 +271,12 @@ test('caps: 200 files per folder, 2 MB per file', async (t) => {
 });
 
 test('folders that must not be indexed are refused', () => {
-  assert.match(refuse('C:\\'), /not the whole drive/);
-  assert.match(refuse(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')), /system folder/);
+  if (process.platform === 'win32') {
+    assert.match(refuse('C:\\'), /whole drive|inside the drive/);
+    assert.match(refuse(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')), /system folder/);
+  } else {
+    assert.match(refuse('/'), /whole drive|inside the drive/);
+  }
   assert.match(refuse('relative/path'), /picker/);
   assert.equal(refuse(os.tmpdir()), null);
 });

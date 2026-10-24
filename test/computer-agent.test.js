@@ -8,7 +8,18 @@ const { runComputerAgent } = require('../src/ai/agent');
 const store = { getKey: () => 'test-only', settings: () => ({ models: {}, webAccess: true }) };
 const reply = (text) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text }] });
 const use = (id, name, input = {}) => ({ type: 'tool_use', id, name, input });
-const snap = (text = 'Chrome — example.com — Results') => ({ ok: true, snapshot: { snapshotId: 's1', text, elements: [] } });
+const snap = (text = 'Chrome — Google Flights — Results for SFO to MSN one-way with fares listed below.') => ({
+  ok: true,
+  snapshot: {
+    snapshotId: 's1',
+    text,
+    elements: [
+      { name: 'SFO', type: 'Edit' },
+      { name: 'MSN', type: 'Edit' },
+      { name: 'Nonstop · $198', type: 'ListItem' },
+    ],
+  },
+});
 const tools = ['computer_inspect', 'computer_act'].map((name) => ({ name, description: name, input_schema: { type: 'object' } }));
 function transport(replies, bodies) {
   return async (_url, options) => {

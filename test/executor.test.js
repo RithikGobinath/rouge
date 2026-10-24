@@ -118,7 +118,7 @@ test('typing refuses password boxes, and hands focus back from our own window', 
   pc.fg = { hwnd: 5, title: 'Untitled - Notepad', process: 'notepad', behindSelf: true };
   const ok = await ex.run({ type: 'type_text', text: 'hi' });
   assert.equal(ok.ok, true);
-  assert.deepEqual(pc.log.find((l) => l[0] === 'focus'), ['focus', 'Untitled - Notepad', ''], 'refocused the app behind us first');
+  assert.deepEqual(pc.log.find((l) => l[0] === 'focus'), ['focus', 'Untitled - Notepad', 'notepad'], 'refocused the verified target window');
 });
 
 test('typing stops when focus cannot be verified', async () => {

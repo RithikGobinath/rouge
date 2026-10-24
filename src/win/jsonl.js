@@ -161,6 +161,8 @@ function createJsonlProcess(opts) {
       const mine = child;
       serial += 1;
       const id = serial;
+      // Keep request timers referenced so a short timeout still fires when the
+      // helper is idle (unref would let the event loop drain before it runs).
       const timer = setTimeout(() => {
         if (!unanswered.delete(id)) return;
         const message = `${op} timed out after ${timeoutMs}ms`;
@@ -170,7 +172,6 @@ function createJsonlProcess(opts) {
           retire(mine, `${name} stopped after an operation timed out`, true, true);
         }
       }, timeoutMs);
-      if (timer.unref) timer.unref();
       unanswered.set(id, { resolve, reject, timer });
       try {
         mine.stdin.write(`${JSON.stringify({ id, op, ...params })}\n`);
