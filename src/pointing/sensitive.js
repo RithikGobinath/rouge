@@ -4,21 +4,10 @@
 // screenshot is taken; a prompt is not a safety boundary. Only a field's kind
 // and its names are read, never what is typed in it.
 
-const FIELD_KINDS = new Set(['edit', 'combobox', 'textbox', 'password']);
-
-// A field with one of these words in its name is treated as a secret. It errs
-// toward refusing: a text box called "Account name" is skipped too.
-const SECRET_WORDS = new Set([
-  'password', 'passcode', 'passwd', 'pwd', 'pin', 'otp',
-  'cvv', 'cvc', 'card', 'credit', 'debit', 'account', 'routing',
-  'ssn', 'passport',
-]);
-// And these, as two or more words in a row.
-const SECRET_PHRASES = [
-  ['social', 'security'], ['national', 'id'], ['government', 'id'], ['tax', 'id'],
-  ['security', 'code'], ['verification', 'code'], ['one', 'time', 'code'],
-  ['driver', 'license'], ['drivers', 'license'], ['driver', 'licence'], ['drivers', 'licence'],
-];
+const policy = require('./private-fields.json');
+const FIELD_KINDS = new Set(policy.fieldKinds);
+const SECRET_WORDS = new Set(policy.words);
+const SECRET_PHRASES = policy.phrases.map((phrase) => phrase.split(' '));
 
 /** "cardNumber", "Card_number" and "card-number" all become ['card', 'number']. */
 function words(...names) {

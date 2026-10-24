@@ -45,7 +45,7 @@ function switchboard(onFault) {
 
 /**
  * @param {{command:string, args:string[], name?:string, log?:(m:string)=>void, spawn?:typeof childProcess.spawn,
- *          pingTimeoutMs?:number, defaultTimeoutMs?:number, restartMinMs?:number, restartMaxMs?:number}} opts
+ *          pingTimeoutMs?:number, defaultTimeoutMs?:number, restartMinMs?:number, restartMaxMs?:number, restartOnTimeout?:boolean}} opts
  */
 function createJsonlProcess(opts) {
   const name = opts.name || 'helper';
@@ -64,6 +64,7 @@ function createJsonlProcess(opts) {
   let waitNext = waitMin;
   let comeBack = null; let giveUp = null;
   let serial = 0;
+  let generation = 0; let failures = 0; let aliveAt = 0;
   const unanswered = new Map();        // id -> { resolve, reject, timer }
 
   const clearTimers = () => { clearTimeout(comeBack); clearTimeout(giveUp); comeBack = null; giveUp = null; };
@@ -89,16 +90,26 @@ function createJsonlProcess(opts) {
     if (msg.error) q.reject(new Error(String(msg.error))); else q.resolve(msg);
   }
 
-  function handleExit(code, signal) {
+  function retire(mine, reason, retry = true, kill = false) {
+    if (mine && child !== mine) return;
     const was = alive;
+    if (was && Date.now() - aliveAt >= 30000) { failures = 0; waitNext = waitMin; }
     child = null;
+    pid = 0;
     clearTimeout(giveUp); giveUp = null;
     setAlive(false);
-    refuseAll(`${name} exited`);
-    if (!wanted) return;
-    log(`${name} exited (${code != null ? code : signal})${was ? ', starting it again' : ''}`);
+    refuseAll(reason);
+    if (kill && mine) {
+      try { mine.stdin.end(); } catch (_) { /* already closed */ }
+      try { mine.kill(); } catch (_) { wanted = false; log(`${name}: could not end the failed helper`); }
+    }
+    if (!retry || !wanted) return;
+    failures += 1;
+    if (failures >= 5) { wanted = false; log(`${name}: repeated failures, giving up`); return; }
+    log(`${name}: helper lost${was ? ', starting it again' : ''}`);
     restarts += 1;
-    comeBack = setTimeout(() => { comeBack = null; launch(); }, waitNext);
+    const retryTimer = setTimeout(() => { if (comeBack !== retryTimer) return; comeBack = null; launch(); }, waitNext);
+    comeBack = retryTimer;
     if (comeBack.unref) comeBack.unref();
     waitNext = Math.min(waitMax, waitNext * 2);
   }
@@ -111,46 +122,58 @@ function createJsonlProcess(opts) {
       lastError = `could not start: ${e.message}`;
       log(`${name}: ${lastError}`);
       child = null;
-      handleExit(-1, null);
+      retire(null, `${name} could not start`);
       return;
     }
     const mine = child;
+    generation += 1;
     mine.stdout.setEncoding('utf8');
-    mine.stdout.on('data', lineReader(onLine));
+    mine.stdout.on('data', lineReader((line) => { if (child === mine && wanted) onLine(line); }));
     if (mine.stderr) {
       mine.stderr.setEncoding('utf8');
-      mine.stderr.on('data', (d) => { const text = String(d).trim(); if (text) { lastError = text.slice(0, 300); log(`${name} stderr: ${lastError}`); } });
+      mine.stderr.on('data', (d) => { if (child !== mine || !wanted) return; const text = String(d).trim(); if (text) { lastError = text.slice(0, 300); log(`${name} stderr: ${lastError}`); } });
     }
-    mine.on('error', (e) => { lastError = e.message; log(`${name} error: ${e.message}`); });
-    mine.on('exit', (code, signal) => { if (child === mine) handleExit(code, signal); });       // a helper we already let go of says nothing
+    const fault = (e) => { if (child !== mine) return; lastError = e.message; log(`${name}: helper connection failed`); retire(mine, `${name} connection failed`, true, true); };
+    mine.on('error', fault);
+    mine.stdin.on('error', fault);
+    mine.on('exit', () => { if (child === mine) retire(mine, `${name} exited`); });
 
     // It has pingMs to answer a ping; if it cannot, it is not coming up, and trying again would only repeat that.
     giveUp = setTimeout(() => {
+      if (child !== mine || !wanted) return;
       giveUp = null;
-      if (!alive && child === mine) { log(`${name}: no answer to its ping, giving up`); wanted = false; try { mine.kill(); } catch (_) { /* gone */ } }
+      if (!alive) { log(`${name}: no answer to its ping, giving up`); wanted = false; retire(mine, `${name} did not answer its ping`, false, true); }
     }, pingMs);
     if (giveUp.unref) giveUp.unref();
     ask('ping', {}, pingMs).then((r) => {
+      if (child !== mine || !wanted) return;
       clearTimeout(giveUp); giveUp = null;
       pid = Number(r.pid) || pid;
-      waitNext = waitMin;
+      aliveAt = Date.now();
       log(`${name} is up (pid ${pid})`);
       setAlive(true);
-    }, (e) => { lastError = `ping: ${e.message}`; });
+    }, (e) => { if (child === mine) lastError = `ping: ${e.message}`; });
   }
 
   function ask(op, params = {}, timeoutMs = answerMs) {
     return new Promise((resolve, reject) => {
       if (!child || !child.stdin || child.stdin.destroyed) { reject(new Error(`${name} is not running`)); return; }
+      const mine = child;
       serial += 1;
       const id = serial;
       const timer = setTimeout(() => {
-        if (unanswered.delete(id)) reject(new Error(`${op} timed out after ${timeoutMs}ms`));
+        if (!unanswered.delete(id)) return;
+        const message = `${op} timed out after ${timeoutMs}ms`;
+        reject(new Error(message));
+        if (opts.restartOnTimeout && op !== 'ping' && child === mine) {
+          lastError = message;
+          retire(mine, `${name} stopped after an operation timed out`, true, true);
+        }
       }, timeoutMs);
       if (timer.unref) timer.unref();
       unanswered.set(id, { resolve, reject, timer });
       try {
-        child.stdin.write(`${JSON.stringify({ id, op, ...params })}\n`);
+        mine.stdin.write(`${JSON.stringify({ id, op, ...params })}\n`);
       } catch (e) {
         unanswered.delete(id); clearTimeout(timer); reject(e);
       }
@@ -159,16 +182,12 @@ function createJsonlProcess(opts) {
 
   return {
     get available() { return alive; },
-    status: () => ({ available: alive, pid, restarts, lastError }),
-    start() { if (wanted) return; wanted = true; waitNext = waitMin; launch(); },
+    status: () => ({ available: alive, pid, generation, restarts, lastError }),
+    start() { if (wanted) return; wanted = true; failures = 0; waitNext = waitMin; launch(); },
     stop() {
       wanted = false;
       clearTimers();
-      const mine = child;
-      child = null;
-      setAlive(false);
-      refuseAll(`${name} stopped`);
-      if (mine) { try { mine.stdin.end(); } catch (_) { /* closed */ } try { mine.kill(); } catch (_) { /* gone */ } }
+      retire(child, `${name} stopped`, false, true);
     },
     request: ask,
     /** Resolves once the helper has answered its ping, or rejects after `ms`. */

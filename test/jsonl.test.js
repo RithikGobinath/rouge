@@ -176,3 +176,63 @@ test('a helper that cannot be started is retried with a wait, and ready() report
   assert.equal(proc.available, true);
   proc.stop();
 });
+
+test('an opted-in operation timeout kills the helper, fails queued work, and ignores stale output', async (t) => {
+  const { proc, children, bringUp } = rig({ opts: { restartOnTimeout: true } });
+  t.after(() => proc.stop());
+  proc.start(); await bringUp();
+  const queued = assert.rejects(proc.request('queued-input', {}, 1000), /stopped after an operation timed out/);
+  const timeout = assert.rejects(proc.request('blocked-uia', {}, 30), /blocked-uia timed out/);
+  await Promise.all([queued, timeout, sleep(40)]);
+  assert.equal(children[0].killed, true);
+  assert.equal(proc.available, false);
+  assert.ok(await until(() => children.length === 2));
+  const generation = proc.status().generation;
+  children[0].says({ ev: 'ready', pid: 999 });
+  children[0].dies();
+  assert.equal(proc.status().pid, 0);
+  assert.equal(proc.status().generation, generation);
+  await bringUp(1);
+  assert.deepEqual(children[1].sent.map((request) => request.op), ['ping'], 'queued input is never replayed');
+  let completed = false;
+  const fresh = proc.request('fresh').then((result) => { completed = true; return result; });
+  const id = children[1].sent.at(-1).id;
+  children[0].says({ id, ok: 'stale' });
+  await sleep(5);
+  assert.equal(completed, false, 'the old process cannot answer a new request');
+  children[1].says({ id, ok: 'fresh' });
+  assert.equal((await fresh).ok, 'fresh');
+});
+
+test('a resolved old ping cannot mark a newly started helper ready', async (t) => {
+  const { proc, children, bringUp } = rig();
+  t.after(() => proc.stop());
+  proc.start();
+  children[0].says({ id: children[0].sent[0].id, pid: 999 });
+  proc.stop(); proc.start();
+  await sleep(5);
+  assert.equal(proc.available, false);
+  assert.equal(proc.status().pid, 0);
+  await bringUp(1);
+  assert.equal(proc.status().pid, 4243);
+});
+
+test('repeated short-lived crashes are bounded and stopping cancels a pending restart', async () => {
+  const f = rig();
+  f.proc.start();
+  for (let index = 0; index < 5; index += 1) {
+    await f.bringUp(index);
+    f.children[index].dies();
+  }
+  await sleep(180);
+  assert.equal(f.children.length, 5, 'a crash loop stops after five failures');
+  assert.equal(f.proc.available, false);
+  f.proc.stop();
+
+  const stopped = rig({ opts: { restartOnTimeout: true } });
+  stopped.proc.start(); await stopped.bringUp();
+  await Promise.all([assert.rejects(stopped.proc.request('blocked', {}, 10), /timed out/), sleep(15)]);
+  stopped.proc.stop();
+  await sleep(150);
+  assert.equal(stopped.children.length, 1);
+});
