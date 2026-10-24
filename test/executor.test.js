@@ -11,21 +11,24 @@ function fakePc(opts = {}) {
   const pc = {
     log,
     fg: { hwnd: 1, title: 'Claude', process: 'claude', behindSelf: false },
-    focusedEl: { name: 'Notes', type: 'Edit', isPassword: false },
+    focusedEl: { name: 'Notes', type: 'Edit', isPassword: false, automationId: '', pid: 1, rect: { x: 1, y: 1, w: 40, h: 20 } },
     asked: [],
     answers: opts.answers || [],
     pending: null,
   };
   pc.sidecar = {
     fg: async () => { if (pc.pending && --pc.pending.polls <= 0) { pc.fg = pc.pending.window; pc.pending = null; } return { ...pc.fg }; },
-    focused: async () => ({ element: pc.focusedEl }),
+    focused: async () => ({ element: pc.focusedEl ? { ...pc.focusedEl } : null }),
     typeText: async (t) => { log.push(['type', t]); },
     chord: async (k) => { log.push(['chord', k.join('+')]); },
     media: async (op, n) => { log.push(['media', op, n]); },
     windowOp: async (op) => { log.push(['window', op]); return { ok: true }; },
-    focusWindow: async (t, p) => { log.push(['focus', t, p]); return { ok: Boolean(opts.hasWindow) }; },
+    focusWindow: async (t, p) => { log.push(['focus', t, p]); if (opts.hasWindow && pc.fg) pc.fg = { ...pc.fg, behindSelf: false }; return { ok: Boolean(opts.hasWindow) }; },
     uiaInvoke: async (name) => { log.push(['invoke', name]); return { ok: name.toLowerCase() !== 'nothing' }; },
-    uiaFind: async (name) => ({ element: { name, rect: { x: 10, y: 20, w: 100, h: 40 } }, score: 100 }),
+    uiaFind: async (name, hwnd, type) => ({
+      element: { name, type: type || 'Button', automationId: '', pid: 1, rect: { x: 10, y: 20, w: 100, h: 40 } },
+      score: name.toLowerCase() === 'nothing' ? 0 : 100,
+    }),
     click: async (x, y, b, d) => { log.push(['click', x, y, b, d]); },
   };
   pc.shell = { openExternal: async (u) => {
@@ -104,18 +107,27 @@ test('opening an already foreground app returns promptly; an unseen app fails ho
 });
 
 test('typing refuses password boxes, and hands focus back from our own window', async () => {
-  const pc = fakePc();
+  const pc = fakePc({ hasWindow: true });
   const ex = exec(pc);
-  pc.focusedEl = { name: 'Secret', type: 'Edit', isPassword: true };
+  pc.focusedEl = { name: 'Secret', type: 'Edit', isPassword: true, automationId: '', pid: 1, rect: { x: 1, y: 1, w: 40, h: 20 } };
   const r = await ex.run({ type: 'type_text', text: 'hunter2' });
   assert.equal(r.ok, false);
-  assert.match(r.note, /password/);
+  assert.match(r.note, /safe focused control|password/i);
   assert.ok(!pc.log.some((l) => l[0] === 'type'));
-  pc.focusedEl = { name: 'Notes', type: 'Edit', isPassword: false };
+  pc.focusedEl = { name: 'Notes', type: 'Edit', isPassword: false, automationId: '', pid: 1, rect: { x: 1, y: 1, w: 40, h: 20 } };
   pc.fg = { hwnd: 5, title: 'Untitled - Notepad', process: 'notepad', behindSelf: true };
   const ok = await ex.run({ type: 'type_text', text: 'hi' });
   assert.equal(ok.ok, true);
-  assert.deepEqual(pc.log.find((l) => l[0] === 'focus'), ['focus', 'Untitled - Notepad', ''], 'refocused the app behind us first');
+  assert.deepEqual(pc.log.find((l) => l[0] === 'focus'), ['focus', 'Untitled - Notepad', 'notepad'], 'refocused the verified target window');
+});
+
+test('typing stops when focus cannot be verified', async () => {
+  const pc = fakePc();
+  pc.focusedEl = null;
+  const ex = exec(pc);
+  const r = await ex.run({ type: 'type_text', text: 'x' });
+  assert.equal(r.ok, false);
+  assert.match(r.note, /safe focused control/i);
 });
 
 test('ask first: Send waits for a yes, a no stops the rest', async () => {

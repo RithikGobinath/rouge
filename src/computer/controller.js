@@ -95,16 +95,40 @@ function createComputerController({ sidecar, executor, ui, log = () => {} }) {
       if (!result || result.ok !== true) throw fail(result && result.code || 'native_unavailable');
       return result;
     }
-    function allowedWindow(window) {
+    function blockedProcess(processName) {
+      return /^(cmd|powershell|pwsh|powershell_ise|windowsterminal|wt|conhost|regedit|taskmgr)$/i.test(processName || '');
+    }
+    function allowedWindow(window, { allowTransition = false } = {}) {
       if (!window || !window.hwnd) throw fail('target_unavailable');
-      if (/^(cmd|powershell|pwsh|powershell_ise|windowsterminal|wt|conhost|regedit|taskmgr)$/i.test(window.process || '')) throw fail('blocked_target');
+      if (blockedProcess(window.process) && !allowTransition) throw fail('blocked_target');
+    }
+    async function blockedStub(window) {
+      snapshot = {
+        snapshotId: `blocked-${Date.now().toString(36)}`,
+        window: { hwnd: window.hwnd, title: window.title || '', process: window.process || '' },
+        text: '',
+        elements: [],
+        blocked: true,
+      };
+      return snapshot;
     }
     async function inspect(hwnd = snapshot && snapshot.window.hwnd || 0) {
       check();
+      // Never walk shell/admin trees: identify them from the foreground and leave via open_app only.
+      if (!hwnd) {
+        const current = await sidecar.fg();
+        check();
+        if (current && blockedProcess(current.process)) return blockedStub(current);
+      }
       const result = await sidecar.computerSnapshot(hwnd);
       try {
         native(result);
-        allowedWindow(result.snapshot && result.snapshot.window);
+        const window = result.snapshot && result.snapshot.window;
+        if (window && blockedProcess(window.process)) {
+          if (result.snapshot.snapshotId) Promise.resolve(sidecar.computerRelease(result.snapshot.snapshotId)).catch(() => {});
+          return blockedStub(window);
+        }
+        allowedWindow(window);
       } catch (e) {
         if (result && result.snapshot) Promise.resolve(sidecar.computerRelease(result.snapshot.snapshotId)).catch(() => {});
         throw e;
@@ -112,11 +136,11 @@ function createComputerController({ sidecar, executor, ui, log = () => {} }) {
       snapshot = result.snapshot;
       return snapshot;
     }
-    async function guard() {
+    async function guard({ allowTransition = false } = {}) {
       check();
       const current = await sidecar.fg();
       check();
-      allowedWindow(current);
+      allowedWindow(current, { allowTransition });
       if (!snapshot || current.hwnd !== snapshot.window.hwnd) throw fail('foreground_changed');
       return current;
     }
@@ -137,13 +161,16 @@ function createComputerController({ sidecar, executor, ui, log = () => {} }) {
     }
     async function perform(a) {
       check();
-      await guard();
+      const leavingBlocked = a.type === 'open_app' || a.type === 'navigate';
+      if (snapshot && snapshot.blocked && !leavingBlocked) throw fail('blocked_target');
+      await guard({ allowTransition: leavingBlocked });
       if (ui && ui.state) ui.state('acting', { word: a.type === 'wait' ? 'Reading' : 'Working', line: 'Using your computer' });
       if (a.type === 'open_app') {
         const result = await executor.run({ type: 'open_app', app: a.app }, { signal });
         check();
         if (!result || !result.ok) throw fail(result && result.cancelled ? 'cancelled' : result && result.declined ? 'declined' : 'app_unavailable');
         await inspect(0);
+        if (snapshot && snapshot.blocked) throw fail('blocked_target');
         return;
       }
       if (a.type === 'navigate') {
@@ -151,6 +178,7 @@ function createComputerController({ sidecar, executor, ui, log = () => {} }) {
         const browserProcess = BROWSERS[browser];
         if (String(snapshot.window.process || '').toLowerCase() !== browserProcess) await perform({ type: 'open_app', app: browser });
         check();
+        if (snapshot && snapshot.blocked) throw fail('blocked_target');
         if (String(snapshot.window.process || '').toLowerCase() !== browserProcess) throw fail('not_browser');
         native(await sidecar.computerAction(snapshot.snapshotId, { type: 'navigate', text: publicWebUrl(a.url) }));
         return;
@@ -171,11 +199,18 @@ function createComputerController({ sidecar, executor, ui, log = () => {} }) {
         // Address bars must follow the same public URL boundary as navigate.
         if (/address.{0,20}(search|bar)|(?:search|enter).{0,40}address|omnibox|urlbar/i.test(element.name || '') && !publicWebUrl(a.text)) throw fail('invalid_url');
       }
-      if (a.type === 'key' && ['enter', 'ctrl+enter', 'space'].includes(a.keys.join('+'))) {
-        const focused = await describe();
-        if (focused && ['Button', 'MenuItem', 'Hyperlink', 'CheckBox', 'RadioButton', 'SplitButton', 'ListItem'].includes(focused.type)) await clickRisk(focused);
-        else if (!focused || !focused.name || !focused.name.trim()) throw fail('unlabelled_control');
-        await ask(classify({ type: 'press_keys', keys: a.keys, label: a.keys.join('+') }, { fg: snapshot.window, typedRecently: Date.now() - typedAt < 90000 }));
+      if (a.type === 'key') {
+        const chord = a.keys.join('+');
+        if (['enter', 'ctrl+enter', 'space'].includes(chord)) {
+          const focused = await describe();
+          if (focused && ['Button', 'MenuItem', 'Hyperlink', 'CheckBox', 'RadioButton', 'SplitButton', 'ListItem'].includes(focused.type)) await clickRisk(focused);
+          else if (!focused || !focused.name || !focused.name.trim()) throw fail('unlabelled_control');
+          await ask(classify({ type: 'press_keys', keys: a.keys, label: chord }, { fg: snapshot.window, focused, typedRecently: Date.now() - typedAt < 90000 }));
+        } else if (chord === 'delete' || chord === 'backspace') {
+          let focused = null;
+          try { focused = await describe(); } catch (_) { focused = null; }
+          await ask(classify({ type: 'press_keys', keys: a.keys, label: chord }, { fg: snapshot.window, focused }));
+        }
       }
       check();
       const action = { ...a };

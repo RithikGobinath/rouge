@@ -1,0 +1,5 @@
+{
+  "fieldKinds": ["edit", "combobox", "textbox", "password"],
+  "words": ["password", "passcode", "passwd", "pwd", "pin", "otp", "cvv", "cvc", "card", "credit", "debit", "account", "routing", "ssn", "passport", "secret", "credential", "credentials"],
+  "phrases": ["social security", "national id", "government id", "tax id", "security code", "verification code", "one time code", "driver license", "drivers license", "driver licence", "drivers licence", "api key", "access token", "refresh token"]
+}

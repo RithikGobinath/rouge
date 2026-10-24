@@ -115,15 +115,7 @@ async function boot() {
   let pushTimer = null;
   const push = () => { clearTimeout(pushTimer); pushTimer = setTimeout(async () => { if (panel.win) panel.send('panel:update', await buildState()); }, 80); };
 
-  const runRoutine = async (r) => {
-    ui.state('acting', { word: 'Doing it', line: r.name });
-    const out = await services.executor.runAll(r.actions, { onStep: (st) => { if (st.phase === 'start') ui.state('acting', { word: 'Doing it', line: st.label }); } });
-    routines.touch(r.id);
-    ui.state(out.ok ? 'ready' : 'idle');
-    setTimeout(() => ui.state('idle'), 900);
-    if (!out.ok && out.note) ui.notice(out.note, { tone: 'error' });
-    return { ok: out.ok, error: out.note };
-  };
+  const runRoutine = (routine) => voice.runRoutine(routine);
 
   let hotkeys = null;
 

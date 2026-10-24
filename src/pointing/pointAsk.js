@@ -6,11 +6,14 @@
 //   2. ask Windows what control is under it, and which window that is
 //   3. send the thread to that control (or to "your spot" when Windows names
 //      nothing), immediately: the picture and the answer follow
-//   4. take one screenshot with the overlay hidden from it, cut a close-up
+//   4. take one screenshot with the overlay hidden from it, mask any private
+//      fields that land in the close-up, and refuse when those fields cannot
+//      be checked
 //   5. ask Claude; the answer opens as a bubble at the tip of the thread
 //
 // A follow-up question reuses the same picture, so it never captures again.
 // Password and card fields are refused before any screenshot is taken.
+// An unfiltered whole-screen overview is never sent.
 
 const { sensitiveTarget } = require('./sensitive');
 
@@ -24,10 +27,15 @@ const MAX_AREA = 0.4;            // a "control" this large is a window, not what
  * @property {any} ai
  * @property {{send:(c:string,d:any)=>void, physToOverlay:(r:object)=>object, win?:any}} overlay
  * @property {{state:Function, notice:Function}} ui
- * @property {{takeDisplay:Function, cropAround:Function, overview:Function}} capture
+ * @property {{takeDisplay:Function, cropAround:Function, maskRegions:Function}} capture
  * @property {()=>number} [now]
  * @property {(msg:string)=>void} [log]
  */
+
+function overlaps(a, b) {
+  if (!a || !b) return false;
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
 
 /** @param {PointDeps} d */
 function createPointAsk(d) {
@@ -55,6 +63,14 @@ function createPointAsk(d) {
     return { rect: { x: cursor.x - s / 2, y: cursor.y - s / 2, w: s, h: s }, element: null };
   }
 
+  async function privateFields(hwnd) {
+    if (!hwnd || typeof d.sidecar.uiaList !== 'function') throw new Error('I could not check nearby private fields.');
+    const listed = await d.sidecar.uiaList(hwnd, 250);
+    if (!listed || !Array.isArray(listed.elements)) throw new Error('I could not check nearby private fields.');
+    if (listed.truncated) throw new Error('I could not check nearby private fields.');
+    return listed.elements.filter((el) => sensitiveTarget(el) && el.rect);
+  }
+
   async function ask(session, question) {
     const snap = session.snap;
     session.busy = true;
@@ -63,7 +79,7 @@ function createPointAsk(d) {
       const asked = session.history.length
         ? `${question || 'Explain this.'}\n\nEarlier in this chat about the same spot:\n${session.history.map((h) => `Q: ${h.q}\nA: ${h.a}`).join('\n')}`
         : question;
-      const r = await d.ai.explain({ crop: snap.crop, overview: snap.overview, question: asked, element: snap.element, window: snap.window, signal: session.ac.signal });
+      const r = await d.ai.explain({ crop: snap.crop, question: asked, element: snap.element, window: snap.window, signal: session.ac.signal });
       if (!cur || cur.id !== session.id) return;
       session.history.push({ q: question || 'Explain this.', a: r.text });
       session.busy = false;
@@ -96,14 +112,23 @@ function createPointAsk(d) {
           bubble({ kicker: 'Look here', text: "That looks like a password or ID field. I won't look at it.", hint: '', actions: [{ id: 'close', label: 'Close' }], anchor: 'tip' });
           return;
         }
+        const hwnd = (fg && fg.hwnd) || (hit && hit.hwnd) || 0;
+        let secrets;
+        try { secrets = await privateFields(hwnd); } catch (e) {
+          fail(session, e.message || 'I could not check nearby private fields.');
+          return;
+        }
+        if (cur !== session) return;
         const shotCursor = { x: cursor.x, y: cursor.y };
         const shot = await d.capture.takeDisplay(shotCursor, { win: d.overlay.win });
         if (cur !== session) return;
         const { rect, element } = spotRect(el, shotCursor, shot.scale, shot.display);
+        const nearPrivate = secrets.filter((s) => overlaps(s.rect, rect));
+        const masked = nearPrivate.length ? d.capture.maskRegions(shot, nearPrivate.map((s) => s.rect)) : shot;
         d.overlay.send('point:target', { rect: d.overlay.physToOverlay(rect), label: element ? '' : 'Your spot' });
-        const crop = d.capture.cropAround(shot, rect);
+        const crop = d.capture.cropAround(masked, rect);
         session.snap = {
-          at: now(), crop: crop.dataUrl, overview: d.capture.overview(shot),
+          at: now(), crop: crop.dataUrl,
           element: element ? { name: element.name, type: element.type, automationId: element.automationId } : null,
           window: fg && fg.title ? { title: fg.title, process: fg.process } : (hit && hit.window ? { title: hit.window.title } : null),
         };

@@ -32,8 +32,25 @@ $pw = New-Object System.Windows.Controls.PasswordBox
 $pw.Width = 240; $pw.HorizontalAlignment = 'Left'
 [System.Windows.Automation.AutomationProperties]::SetName($pw, 'Secret code')
 
+$ssn = New-Object System.Windows.Controls.TextBox
+$ssn.Width = 240; $ssn.HorizontalAlignment = 'Left'; $ssn.Margin = New-Object System.Windows.Thickness(0, 12, 0, 0)
+$ssn.Text = '123-45-6789'
+[System.Windows.Automation.AutomationProperties]::SetName($ssn, 'SSN')
+
+$otp = New-Object System.Windows.Controls.TextBox
+$otp.Width = 240; $otp.HorizontalAlignment = 'Left'; $otp.Margin = New-Object System.Windows.Thickness(0, 8, 0, 0)
+$otp.Text = '482910'
+[System.Windows.Automation.AutomationProperties]::SetName($otp, 'OTP')
+
+$cvc = New-Object System.Windows.Controls.TextBox
+$cvc.Width = 240; $cvc.HorizontalAlignment = 'Left'; $cvc.Margin = New-Object System.Windows.Thickness(0, 8, 0, 0)
+$cvc.Text = '737'
+[System.Windows.Automation.AutomationProperties]::SetName($cvc, 'CVC')
+
 [void]$panel.Children.Add($tb); [void]$panel.Children.Add($btn); [void]$panel.Children.Add($pw)
+[void]$panel.Children.Add($ssn); [void]$panel.Children.Add($otp); [void]$panel.Children.Add($cvc)
 $win.Content = $panel
+$win.Height = 560
 
 $tb.Add_TextChanged({ [System.IO.File]::WriteAllText($out, $tb.Text) })
 $btn.Add_Click({ $tb.AppendText('[clicked]') })

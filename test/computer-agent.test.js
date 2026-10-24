@@ -8,7 +8,18 @@ const { runComputerAgent } = require('../src/ai/agent');
 const store = { getKey: () => 'test-only', settings: () => ({ models: {}, webAccess: true }) };
 const reply = (text) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text }] });
 const use = (id, name, input = {}) => ({ type: 'tool_use', id, name, input });
-const snap = (text = 'Chrome — example.com — Results') => ({ ok: true, snapshot: { snapshotId: 's1', text, elements: [] } });
+const snap = (text = 'Chrome — Google Flights — Results for SFO to MSN one-way with fares listed below.') => ({
+  ok: true,
+  snapshot: {
+    snapshotId: 's1',
+    text,
+    elements: [
+      { name: 'SFO', type: 'Edit' },
+      { name: 'MSN', type: 'Edit' },
+      { name: 'Nonstop · $198', type: 'ListItem' },
+    ],
+  },
+});
 const tools = ['computer_inspect', 'computer_act'].map((name) => ({ name, description: name, input_schema: { type: 'object' } }));
 function transport(replies, bodies) {
   return async (_url, options) => {
@@ -98,6 +109,37 @@ test('unobserved completion and deferred actions are rejected; stopped control n
     assert.equal(requests, scenario === 'deferred' ? 2 : 1);
     assert.equal(closed, 1);
   }
+});
+
+test('Chrome toolbar alone is not completion evidence for a flight search', async () => {
+  const toolbar = {
+    ok: true,
+    snapshot: {
+      snapshotId: 'toolbar',
+      text: '',
+      elements: [
+        { name: 'Back', type: 'Button' },
+        { name: 'Forward', type: 'Button' },
+        { name: 'Reload', type: 'Button' },
+        { name: 'Address', type: 'Edit' },
+      ],
+    },
+  };
+  let requests = 0;
+  const result = await runComputerAgent({
+    task: 'plan', model: 'claude-sonnet-5-5',
+    user: 'Find one-way flights SFO to MSN on October 30',
+    goal: 'one-way flights SFO to MSN October 30 2026',
+    controller: { createSession: () => ({ tools, runTool: async () => toolbar, close: async () => {} }) },
+    request: async () => {
+      requests += 1;
+      if (requests === 1) return { stop_reason: 'tool_use', content: [use('inspect', 'computer_inspect')] };
+      return reply(JSON.stringify({ say: 'Done. Flights are ready.', actions: [] }));
+    },
+  });
+  const output = JSON.parse(result.text);
+  assert.notEqual(output.say, 'Done. Flights are ready.');
+  assert.match(output.say, /could not verify/i);
 });
 
 test('cancellation closes the session before any additional model request', async () => {

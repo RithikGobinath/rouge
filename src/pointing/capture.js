@@ -1,9 +1,10 @@
 'use strict';
 // One screenshot of one display, cut down to what a model needs: a close-up
-// of the spot and a small picture of the whole screen. The overlay is kept out
-// of the picture while it is taken, so the ribbon never photographs itself.
+// of the spot. The overlay is kept out of the picture while it is taken, so
+// the ribbon never photographs itself. Private field rectangles are blacked
+// out before the crop is sent.
 
-const { desktopCapturer, screen } = require('electron');
+const { desktopCapturer, screen, nativeImage } = require('electron');
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -30,6 +31,32 @@ async function takeDisplay(phys, o = {}) {
 }
 
 /**
+ * Black out physical-pixel rectangles on a capture (BGRA). Returns a new shot.
+ * @param {object} shot
+ * @param {Array<{x:number,y:number,w:number,h:number}>} rects
+ */
+function maskRegions(shot, rects) {
+  if (!shot || !shot.image || !Array.isArray(rects) || !rects.length) return shot;
+  const size = shot.image.getSize();
+  const buf = Buffer.from(shot.image.getBitmap());
+  const stride = size.width * 4;
+  for (const rect of rects) {
+    if (!rect) continue;
+    const x0 = clamp(Math.floor(rect.x - shot.origin.x), 0, size.width);
+    const y0 = clamp(Math.floor(rect.y - shot.origin.y), 0, size.height);
+    const x1 = clamp(Math.ceil(rect.x + rect.w - shot.origin.x), 0, size.width);
+    const y1 = clamp(Math.ceil(rect.y + rect.h - shot.origin.y), 0, size.height);
+    for (let y = y0; y < y1; y += 1) {
+      for (let x = x0; x < x1; x += 1) {
+        const i = y * stride + x * 4;
+        buf[i] = 0; buf[i + 1] = 0; buf[i + 2] = 0; buf[i + 3] = 255;
+      }
+    }
+  }
+  return { ...shot, image: nativeImage.createFromBitmap(buf, { width: size.width, height: size.height }) };
+}
+
+/**
  * Crop around a physical-pixel rectangle: the rectangle plus some context,
  * never smaller than minW x minH, never larger than maxW x maxH, kept on screen.
  * @returns {{dataUrl:string, rect:{x:number,y:number,w:number,h:number}}} rect is in physical screen pixels
@@ -44,11 +71,4 @@ function cropAround(shot, rect, { pad = 60, minW = 420, minH = 260, maxW = 1000,
   return { dataUrl: `data:image/png;base64,${img.toPNG().toString('base64')}`, rect: { x: out.x + shot.origin.x, y: out.y + shot.origin.y, w: out.width, h: out.height } };
 }
 
-/** The whole display, small. */
-function overview(shot, maxSide = 1280) {
-  const f = Math.min(1, maxSide / Math.max(shot.width, shot.height));
-  const img = f < 1 ? shot.image.resize({ width: Math.round(shot.width * f), height: Math.round(shot.height * f), quality: 'good' }) : shot.image;
-  return `data:image/jpeg;base64,${img.toJPEG(72).toString('base64')}`;
-}
-
-module.exports = { takeDisplay, cropAround, overview };
+module.exports = { takeDisplay, cropAround, maskRegions };

@@ -6,6 +6,47 @@ const { computerSystem } = require('./prompts');
 const MAX_TURNS = 20;
 const MAX_TOOLS = 24;
 const DEADLINE_MS = 180000;
+const TOOLBAR = /^(back|forward|reload|refresh|home|new tab|extensions|bookmarks|downloads|history|address|omnibox|search tabs|chrome|edge|firefox|brave|file|edit|view|help)$/i;
+
+/** Chrome toolbars alone are not proof of task completion. */
+function meaningfulObservation(snapshot) {
+  if (!snapshot || snapshot.blocked) return false;
+  const text = String(snapshot.text || '').trim();
+  if (text.length >= 80) return true;
+  const elements = Array.isArray(snapshot.elements) ? snapshot.elements : [];
+  const content = elements.filter((el) => {
+    const name = String(el && el.name || '').trim();
+    const type = String(el && el.type || '');
+    if (!name || TOOLBAR.test(name)) return false;
+    if (['Edit', 'Document', 'ListItem', 'DataItem', 'Hyperlink', 'Text', 'ComboBox'].includes(type)) return true;
+    return name.length >= 18;
+  });
+  return content.length >= 3 || text.length >= 40;
+}
+
+/** Pull short alphanumeric tokens from the goal that should appear in a verified result. */
+function goalTokens(goal) {
+  return String(goal || '')
+    .toUpperCase()
+    .match(/\b(?:[A-Z]{3}|20\d{2}|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*|\d{1,2})\b/g) || [];
+}
+
+function looksLikeBlocker(text) {
+  return /\b(could not|couldn't|cannot|can't|unable|blocked|inaccessible|stopped|need (you|more)|ask(ed)? (you|the user)|not (enough|available|accessible|verified))\b/i.test(text)
+    && !/\b(fare|price|\$\d|completed successfully|here are the)\b/i.test(text);
+}
+
+function completionEvidence(goal, snapshot, answer) {
+  if (!meaningfulObservation(snapshot)) return false;
+  if (looksLikeBlocker(answer)) return true;
+  const hay = `${snapshot.text || ''} ${(snapshot.elements || []).map((el) => el.name || '').join(' ')} ${answer}`.toUpperCase();
+  const tokens = goalTokens(goal);
+  if (!/\b(flight|flights|airfare|google flights|one-?way|round.?trip)\b/i.test(String(goal || ''))) return true;
+  const needed = tokens.filter((t) => t.length >= 3);
+  if (!needed.length) return /\b(flight|depart|arrive|nonstop|stop|\$\d)/i.test(hay);
+  const hits = needed.filter((t) => hay.includes(t));
+  return hits.length >= Math.min(2, needed.length) && /\b(flight|depart|arrive|nonstop|stop|\$\d|usd|eur|cad)/i.test(hay);
+}
 
 /** One selected worker owns the task until observed completion or a clear stop. */
 async function runComputerAgent({ controller, request, user, goal, task, model, timestamp, signal, log = () => {} }) {
@@ -15,6 +56,7 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
   const messages = [{ role: 'user', content: [{ type: 'text', text: user }] }];
   const system = [{ type: 'text', text: computerSystem(task, { timestamp }), cache_control: { type: 'ephemeral' } }];
   let session; let last; let toolCount = 0; let observed = false; let consecutiveFailures = 0;
+  let lastSnapshot = null;
   const failedActions = new Set();
   function checkCancelled() {
     if (signal && signal.aborted) throw new AiError('The request was cancelled.', { provider: 'anthropic', code: 'cancelled' });
@@ -49,13 +91,23 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
       if (last.stop_reason === 'pause_turn') return finish('The computer task paused before I could verify completion.');
       if (last.stop_reason !== 'tool_use') {
         if (!['end_turn', 'stop_sequence'].includes(last.stop_reason) || calls.length) return finish('The computer task stopped without a complete answer.');
-        if (!observed) return finish('I could not inspect the computer, so I cannot verify that task was completed.');
+        if (!observed || !meaningfulObservation(lastSnapshot)) {
+          return finish('I could not verify the requested outcome from the computer, so I stopped short of claiming it was done.');
+        }
         const text = content.filter((block) => block.type === 'text').map((block) => block.text || '').join('').trim();
-        if (task !== 'plan') return finish(text || 'The computer task stopped without a usable answer.');
+        if (task !== 'plan') {
+          if (!completionEvidence(goal, lastSnapshot, text)) {
+            return finish('I could not verify the requested outcome from the computer, so I stopped short of claiming it was done.');
+          }
+          return finish(text || 'The computer task stopped without a usable answer.');
+        }
         let final;
         try { final = JSON.parse(text); } catch (_) { /* Never execute a partial or malformed final plan. */ }
         if (!final || typeof final.say !== 'string' || !final.say.trim() || !Array.isArray(final.actions) || final.actions.length) {
           return finish('The computer task stopped without a verified final answer.');
+        }
+        if (!completionEvidence(goal, lastSnapshot, final.say)) {
+          return finish('I could not verify the requested outcome from the computer, so I stopped short of claiming it was done.');
         }
         return finish(final.say.trim());
       }
@@ -81,8 +133,10 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
         }
         if (checkCancelled()) return finish('I ran out of time before I could verify the task was complete.');
         const failed = !result || result.ok !== true;
-        if (!failed && result.snapshot && ((typeof result.snapshot.text === 'string' && result.snapshot.text.trim())
-          || (Array.isArray(result.snapshot.elements) && result.snapshot.elements.length))) observed = true;
+        if (!failed && result.snapshot) {
+          lastSnapshot = result.snapshot;
+          if (meaningfulObservation(result.snapshot)) observed = true;
+        }
         if (failed) consecutiveFailures += 1;
         else if (call.name === 'computer_act') consecutiveFailures = 0;
         if (failed && call.name === 'computer_act' && !['stale_reference', 'stale_snapshot'].includes(result && result.error && result.error.code)) failedActions.add(signature);

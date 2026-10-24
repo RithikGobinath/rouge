@@ -23,11 +23,13 @@ function createSpeech(opts = {}) {
     log: opts.log,
     spawn: opts.spawn,
     pingTimeoutMs: 30000,
+    restartOnTimeout: true,
   });
 
   let recognizer = '';
   let initError = '';
   let listening = false;
+  let initialization = null;
   /** @type {Transcript} */
   let t = { finals: [], partial: '', text: '' };
   const listeners = { update: [], level: [], done: [], error: [] };
@@ -41,14 +43,35 @@ function createSpeech(opts = {}) {
   proc.on('error', (m) => emit('error', new Error(String(m.message || 'speech error'))));
   proc.on('done', () => { listening = false; emit('done', { ...t }); });
 
+  proc.on('availability', (available) => {
+    if (available) { initialize(); return; }
+    const wasListening = listening;
+    recognizer = ''; initError = ''; listening = false; initialization = null;
+    if (wasListening) emit('done', { ...t });
+  });
+
+  function initialize() {
+    const generation = proc.status().generation;
+    if (initialization && initialization.generation === generation) return initialization.promise;
+    const current = { generation, promise: null };
+    initialization = current;
+    current.promise = (async () => {
+      try {
+        const r = await proc.request('init', { culture: opts.culture || 'en' }, 30000);
+        if (proc.status().generation !== generation || !proc.available) return { ok: false, recognizer: '', error: 'Speech helper restarted.' };
+        recognizer = String(r.recognizer || ''); initError = '';
+      } catch (e) {
+        if (proc.status().generation !== generation || !proc.available) return { ok: false, recognizer: '', error: 'Speech helper restarted.' };
+        initError = e.message; recognizer = '';
+      }
+      return { ok: Boolean(recognizer), recognizer, error: initError };
+    })();
+    return current.promise;
+  }
+
   async function init() {
     await proc.ready(40000);
-    try {
-      const r = await proc.request('init', { culture: opts.culture || 'en' }, 30000);
-      recognizer = String(r.recognizer || '');
-      initError = '';
-    } catch (e) { initError = e.message; recognizer = ''; }
-    return { ok: Boolean(recognizer), recognizer, error: initError };
+    return initialize();
   }
 
   return {
@@ -61,6 +84,8 @@ function createSpeech(opts = {}) {
     get listening() { return listening; },
     /** Begin listening. `file` plays a WAV instead of the microphone (tests). */
     async listen(file) {
+      const ready = await init();
+      if (!ready.ok) throw new Error(ready.error || 'Speech recognition is not ready.');
       t = { finals: [], partial: '', text: '' };
       listening = true;
       try { await proc.request('start', file ? { file } : {}, 8000); } catch (e) { listening = false; throw e; }

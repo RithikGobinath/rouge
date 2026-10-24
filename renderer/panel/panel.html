@@ -92,8 +92,6 @@
         <div class="setrow"><span><b>Start with Windows</b><small>Open quietly at sign-in so the hotkeys are ready.</small></span><button type="button" class="tg" id="tg-login" role="switch" aria-checked="false"></button></div>
         <div class="setrow"><span><b>Optional Claude Code fallback</b><small id="cc-line">A, B and C use your Anthropic key.</small></span><button type="button" class="tg" id="tg-cc" role="switch" aria-checked="false"></button></div>
         <div class="setrow"><span><b>Internet access</b><small>Claude can search and read public pages when an answer needs current information. Source links appear with the answer.</small></span><button type="button" class="tg" id="tg-web" role="switch" aria-checked="true"></button></div>
-        <div class="setrow"><span><b>Browser search engine</b><small>Where commands to open a search in your browser go.</small></span>
-          <select id="sel-engine"><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select></div>
         <details class="adv"><summary>Models</summary>
           <p class="m">A answers directly or hands harder work to B or C. Only a handoff adds a second request.</p>
           <label>A — Conversation and routing <input id="model-anthropic-a" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
@@ -105,7 +103,7 @@
       </div>
 
       <div class="about">
-        <b id="about-name">Clippy.</b> Keys are encrypted on this PC. Questions and relevant excerpts from your selected folders go directly to the configured AI provider. When internet access is on, Claude can use public web search and page reading. Point-and-ask also sends a close-up of the spot you chose and an overview of your screen.
+        <b id="about-name">Clippy.</b> Keys are encrypted on this PC. Questions and relevant excerpts from your selected folders go directly to the configured AI provider. When internet access is on, Claude can use public web search and page reading. Point-and-ask sends a close-up of the spot you chose; private fields elsewhere on the screen are masked or refused.
         <span id="about-path"></span>
       </div>
     </section>

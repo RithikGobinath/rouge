@@ -77,7 +77,8 @@ function createRoutines({ file }) {
     match(name) {
       if (!items.length) return null;
       const want = norm(name);
-      const newest = [...items].sort((a, b) => b.createdAt - a.createdAt)[0];
+      // Same-millisecond saves: prefer the later list entry so "newest" is stable.
+      const newest = [...items].sort((a, b) => (b.createdAt - a.createdAt) || (items.indexOf(b) - items.indexOf(a)))[0];
       if (!want) return newest;
       const words = want.split(' ');
       let best = null; let bestScore = 0;

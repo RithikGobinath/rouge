@@ -72,6 +72,39 @@ test('calendar files: events, folding, all-day, time zones, repeats', () => {
   assert.match(formatEvent(soon.find((e) => e.summary === 'Lab meeting')), /Lab meeting @ Room 3, East Hall/);
 });
 
+test('UTC, named-zone and floating recurrences retain their own clock across DST', () => {
+  const previous = process.env.TZ;
+  try {
+    process.env.TZ = 'America/Los_Angeles';
+    const daily = (start) => parseIcs(`BEGIN:VEVENT\n${start}\nDURATION:PT30M\nRRULE:FREQ=DAILY;COUNT=3\nEND:VEVENT`)[0];
+    const utc = daily('DTSTART:20260307T090000Z');
+    assert.equal(utc.timeZone, 'UTC');
+    assert.deepEqual(occurrences(utc, Date.UTC(2026, 2, 6), Date.UTC(2026, 2, 11)).map((e) => e.start),
+      [7, 8, 9].map((day) => Date.UTC(2026, 2, day, 9)));
+    const floating = daily('DTSTART:20260307T090000');
+    assert.equal(floating.timeZone, null);
+    assert.deepEqual(occurrences(floating, Date.UTC(2026, 2, 6), Date.UTC(2026, 2, 11)).map((e) => e.start),
+      [Date.UTC(2026, 2, 7, 17), Date.UTC(2026, 2, 8, 16), Date.UTC(2026, 2, 9, 16)]);
+
+    process.env.TZ = 'Europe/London';
+    const named = parseIcs('BEGIN:VEVENT\nDTSTART;TZID=America/New_York:20260301T090000\nDURATION:PT30M\nRRULE:FREQ=WEEKLY;BYDAY=SU;COUNT=5;UNTIL=20260322T130000Z\nEXDATE;TZID=America/New_York:20260308T090000\nEND:VEVENT')[0];
+    const weeks = occurrences(named, Date.UTC(2026, 2, 1), Date.UTC(2026, 3, 1));
+    assert.deepEqual(weeks.map((e) => e.start), [Date.UTC(2026, 2, 1, 14), Date.UTC(2026, 2, 15, 13), Date.UTC(2026, 2, 22, 13)]);
+    assert.ok(weeks.every((e) => e.end - e.start === 30 * 60 * 1000));
+  } finally {
+    if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous;
+  }
+});
+
+test('month and year repeats skip dates that do not exist instead of shifting them', () => {
+  const month = parseIcs('BEGIN:VEVENT\nDTSTART:20260131T090000Z\nRRULE:FREQ=MONTHLY;COUNT=3\nEND:VEVENT')[0];
+  assert.deepEqual(occurrences(month, Date.UTC(2026, 0, 1), Date.UTC(2026, 6, 1)).map((e) => e.start),
+    [Date.UTC(2026, 0, 31, 9), Date.UTC(2026, 2, 31, 9), Date.UTC(2026, 4, 31, 9)]);
+  const year = parseIcs('BEGIN:VEVENT\nDTSTART:20240229T090000Z\nRRULE:FREQ=YEARLY;COUNT=2\nEND:VEVENT')[0];
+  assert.deepEqual(occurrences(year, Date.UTC(2024, 0, 1), Date.UTC(2030, 0, 1)).map((e) => e.start),
+    [Date.UTC(2024, 1, 29, 9), Date.UTC(2028, 1, 29, 9)]);
+});
+
 test('BM25 finds the note that answers, ignoring filler words', () => {
   const idx = new Bm25();
   idx.add('a', 'The lab report is due on Friday at noon. Submit it on Canvas.', { file: 'a' });
@@ -125,6 +158,49 @@ test('a file over 2 MB is refused', async (t) => {
   t.after(() => rm(dir));
   fs.writeFileSync(path.join(dir, 'big.txt'), 'x'.repeat(2 * 1024 * 1024 + 1));
   await assert.rejects(extract(path.join(dir, 'big.txt')), /2 MB/);
+});
+
+test('Word expansion is bounded per entry and in total, including duplicate names', async (t) => {
+  const dir = tmp();
+  t.after(() => rm(dir));
+  const xml = (bytes) => strToU8('<w:document>' + 'x'.repeat(bytes) + '</w:document>');
+  const oversized = Buffer.from(zipSync({ 'word/document.xml': xml(9 * 1024 * 1024) }));
+  assert.ok(oversized.length < 2 * 1024 * 1024, 'compressed input fits the ordinary file limit');
+  fs.writeFileSync(path.join(dir, 'entry.docx'), oversized);
+  await assert.rejects(extract(path.join(dir, 'entry.docx')), /expands beyond/);
+
+  const total = zipSync({ 'word/document.xml': xml(6 * 1024 * 1024), 'word/header1.xml': xml(6 * 1024 * 1024), 'word/footer1.xml': xml(6 * 1024 * 1024) });
+  fs.writeFileSync(path.join(dir, 'total.docx'), total);
+  await assert.rejects(extract(path.join(dir, 'total.docx')), /expands beyond/);
+
+  const repeated = Buffer.from(zipSync({ 'word/document.xml': strToU8('<w:p><w:t>Main</w:t></w:p>'), 'word/header01.xml': strToU8('<w:p><w:t>Header</w:t></w:p>') }));
+  const oldName = Buffer.from('word/header01.xml');
+  const duplicate = Buffer.from('word/document.xml');
+  assert.equal(oldName.length, duplicate.length);
+  for (let offset = repeated.indexOf(oldName); offset >= 0; offset = repeated.indexOf(oldName, offset + duplicate.length)) duplicate.copy(repeated, offset);
+  fs.writeFileSync(path.join(dir, 'duplicate.docx'), repeated);
+  await assert.rejects(extract(path.join(dir, 'duplicate.docx')), /invalid Word archive entry/);
+});
+
+test('old folder caches are re-extracted so calendar zones are not lost', async (t) => {
+  const notes = tmp(); const data = tmp();
+  t.after(() => { rm(notes); rm(data); });
+  fs.writeFileSync(path.join(notes, 'calendar.ics'), ICS);
+  const original = createFolders({ dir: data }); original.load();
+  const added = original.add(notes);
+  await original.refresh(added.folder.id);
+  const cacheFile = path.join(data, 'index', `${added.folder.id}.json`);
+  const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  cache.version = 1;
+  for (const event of cache.files['calendar.ics'].events) { delete event.timeZone; delete event.startParts; }
+  fs.writeFileSync(cacheFile, JSON.stringify(cache));
+  let reExtracted = 0;
+  const updated = createFolders({ dir: data, extract: async (file) => { reExtracted += 1; return extract(file); } });
+  updated.load();
+  await updated.refresh(added.folder.id);
+  assert.equal(reExtracted, 1);
+  const refreshed = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  assert.equal(refreshed.files['calendar.ics'].events[0].timeZone, 'UTC');
 });
 
 test('folders: add, count, answer from them, turn off, remove', async (t) => {
@@ -195,8 +271,12 @@ test('caps: 200 files per folder, 2 MB per file', async (t) => {
 });
 
 test('folders that must not be indexed are refused', () => {
-  assert.match(refuse('C:\\'), /not the whole drive/);
-  assert.match(refuse(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')), /system folder/);
+  if (process.platform === 'win32') {
+    assert.match(refuse('C:\\'), /whole drive|inside the drive/);
+    assert.match(refuse(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')), /system folder/);
+  } else {
+    assert.match(refuse('/'), /whole drive|inside the drive/);
+  }
   assert.match(refuse('relative/path'), /picker/);
   assert.equal(refuse(os.tmpdir()), null);
 });

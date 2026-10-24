@@ -6,6 +6,7 @@
 // INTERVAL, COUNT, UNTIL and EXDATE). Not a full RFC 5545 engine.
 
 const DAY = 86400000;
+const zoneFormats = new Map();
 
 /** Windows time-zone names Outlook writes -> IANA names. */
 const WIN_TZ = {
@@ -35,7 +36,11 @@ function splitLine(line) {
 }
 
 function tzOffsetMs(utcMs, tz) {
-  const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+  let f = zoneFormats.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+    zoneFormats.set(tz, f);
+  }
   const p = Object.fromEntries(f.formatToParts(new Date(utcMs)).map((x) => [x.type, Number(x.value)]));
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
 }
@@ -49,17 +54,18 @@ function zonedToUtc(y, mo, d, h, mi, s, tz) {
   return utc;
 }
 
-/** @returns {{ms:number, allDay:boolean}|null} */
+/** @returns {{ms:number, allDay:boolean, timeZone:string|null, parts:number[]}|null} */
 function parseDate(value, params) {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(String(value).trim());
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  if (m[4] == null) return { ms: new Date(y, mo - 1, d).getTime(), allDay: true };
+  if (m[4] == null) return { ms: new Date(y, mo - 1, d).getTime(), allDay: true, timeZone: null, parts: [y, mo, d, 0, 0, 0] };
   const [h, mi, s] = [Number(m[4]), Number(m[5]), Number(m[6] || 0)];
-  if (m[7]) return { ms: Date.UTC(y, mo - 1, d, h, mi, s), allDay: false };
+  const parts = [y, mo, d, h, mi, s];
+  if (m[7]) return { ms: Date.UTC(y, mo - 1, d, h, mi, s), allDay: false, timeZone: 'UTC', parts };
   const tzName = params && params.TZID ? (WIN_TZ[params.TZID] || params.TZID) : null;
-  if (tzName) { try { return { ms: zonedToUtc(y, mo, d, h, mi, s, tzName), allDay: false }; } catch (_) { /* unknown zone: treat as local */ } }
-  return { ms: new Date(y, mo - 1, d, h, mi, s).getTime(), allDay: false };
+  if (tzName) { try { return { ms: zonedToUtc(y, mo, d, h, mi, s, tzName), allDay: false, timeZone: tzName, parts }; } catch (_) { /* unknown zone: treat as local */ } }
+  return { ms: new Date(y, mo - 1, d, h, mi, s).getTime(), allDay: false, timeZone: null, parts };
 }
 
 function parseDuration(v) {
@@ -79,6 +85,8 @@ function parseDuration(v) {
  * @property {string} description
  * @property {Object|null} rrule
  * @property {number[]} exdates
+ * @property {string|null} timeZone  UTC, named zone, or null for floating time
+ * @property {number[]} startParts  original year, month, day, hour, minute, second
  */
 
 /** @param {string} text @returns {CalEvent[]} */
@@ -102,7 +110,7 @@ function parseIcs(text) {
       case 'SUMMARY': cur.summary = unescapeText(p.value); break;
       case 'LOCATION': cur.location = unescapeText(p.value); break;
       case 'DESCRIPTION': cur.description = unescapeText(p.value).slice(0, 600); break;
-      case 'DTSTART': { const d = parseDate(p.value, p.params); if (d) { cur.start = d.ms; cur.allDay = d.allDay; } break; }
+      case 'DTSTART': { const d = parseDate(p.value, p.params); if (d) { cur.start = d.ms; cur.allDay = d.allDay; cur.timeZone = d.timeZone; cur.startParts = d.parts; } break; }
       case 'DTEND': { const d = parseDate(p.value, p.params); if (d) cur.end = d.ms; break; }
       case 'DURATION': cur.duration = parseDuration(p.value); break;
       case 'EXDATE': for (const v of p.value.split(',')) { const d = parseDate(v, p.params); if (d) cur.exdates.push(d.ms); } break;
@@ -132,46 +140,57 @@ function occurrences(ev, from, to, limit = 60) {
   const r = ev.rrule;
   const interval = Math.max(1, Number(r.INTERVAL) || 1);
   const count = r.COUNT ? Number(r.COUNT) : Infinity;
-  const until = r.UNTIL ? (parseDate(r.UNTIL, {}) || {}).ms : Infinity;
-  const first = new Date(ev.start);
+  const until = r.UNTIL ? (parseDate(r.UNTIL, ev.timeZone ? { TZID: ev.timeZone } : {}) || {}).ms : Infinity;
+  const source = new Date(ev.start);
+  const parts = ev.startParts || [source.getFullYear(), source.getMonth() + 1, source.getDate(), source.getHours(), source.getMinutes(), source.getSeconds()];
+  // UTC setters advance calendar fields without letting the host's DST alter the event's own clock.
+  const first = new Date(Date.UTC(parts[0], parts[1] - 1, ...parts.slice(2)));
   let n = 0;
   const days = r.BYDAY ? r.BYDAY.split(',').map((d) => BYDAY[d.slice(-2)]).filter((d) => d != null) : null;
-  const at = (date) => date.getTime();
+  const at = (date) => {
+    if (ev.timeZone === 'UTC') return date.getTime();
+    const wall = [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(), date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds()];
+    return ev.timeZone ? zonedToUtc(...wall, ev.timeZone) : new Date(wall[0], wall[1] - 1, ...wall.slice(2)).getTime();
+  };
   const guard = 5000;
   if (r.FREQ === 'DAILY') {
     for (let i = 0; i < guard && n < count; i += 1) {
-      const d = new Date(first); d.setDate(first.getDate() + i * interval);
-      if (at(d) > until || at(d) >= to) break;
-      n += 1; push(at(d));
+      const d = new Date(first); d.setUTCDate(first.getUTCDate() + i * interval);
+      const start = at(d);
+      if (start > until || start >= to) break;
+      n += 1; push(start);
     }
   } else if (r.FREQ === 'WEEKLY') {
-    const wanted = days && days.length ? days : [first.getDay()];
-    const weekStart = new Date(first); weekStart.setDate(first.getDate() - first.getDay());
+    const wanted = days && days.length ? days : [first.getUTCDay()];
+    const weekStart = new Date(first); weekStart.setUTCDate(first.getUTCDate() - first.getUTCDay());
     for (let w = 0; w < guard && n < count; w += 1) {
-      const base = new Date(weekStart); base.setDate(weekStart.getDate() + w * 7 * interval);
+      const base = new Date(weekStart); base.setUTCDate(weekStart.getUTCDate() + w * 7 * interval);
       let past = false;
       for (const wd of [...wanted].sort((a, b) => a - b)) {
-        const d = new Date(base); d.setDate(base.getDate() + wd);
-        d.setHours(first.getHours(), first.getMinutes(), first.getSeconds(), 0);
-        if (at(d) < ev.start) continue;
-        if (at(d) > until || at(d) >= to) { past = true; break; }
+        const d = new Date(base); d.setUTCDate(base.getUTCDate() + wd);
+        const start = at(d);
+        if (start < ev.start) continue;
+        if (start > until || start >= to) { past = true; break; }
         if (n >= count) { past = true; break; }
-        n += 1; push(at(d));
+        n += 1; push(start);
       }
       if (past) break;
     }
   } else if (r.FREQ === 'MONTHLY') {
     for (let i = 0; i < guard && n < count; i += 1) {
-      const d = new Date(first); d.setMonth(first.getMonth() + i * interval);
-      if (d.getDate() !== first.getDate()) continue;   // 31st in a 30-day month: skipped, as the spec says
-      if (at(d) > until || at(d) >= to) break;
-      n += 1; push(at(d));
+      const d = new Date(first); d.setUTCMonth(first.getUTCMonth() + i * interval);
+      if (d.getUTCDate() !== first.getUTCDate()) continue;   // 31st in a 30-day month: skipped, as the spec says
+      const start = at(d);
+      if (start > until || start >= to) break;
+      n += 1; push(start);
     }
   } else if (r.FREQ === 'YEARLY') {
     for (let i = 0; i < 200 && n < count; i += 1) {
-      const d = new Date(first); d.setFullYear(first.getFullYear() + i * interval);
-      if (at(d) > until || at(d) >= to) break;
-      n += 1; push(at(d));
+      const d = new Date(first); d.setUTCFullYear(first.getUTCFullYear() + i * interval);
+      if (d.getUTCMonth() !== first.getUTCMonth() || d.getUTCDate() !== first.getUTCDate()) continue;
+      const start = at(d);
+      if (start > until || start >= to) break;
+      n += 1; push(start);
     }
   } else push(ev.start);
   return out.slice(0, limit);
