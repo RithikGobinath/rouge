@@ -4,7 +4,7 @@
 // package.json carry the name as well; they are static files.)
 
 module.exports = Object.freeze({
-  name: 'Clippy',
+  name: 'Rouge',
   appId: 'local.clippy.app',
   dataDir: 'Clippy',
 });
