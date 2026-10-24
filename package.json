@@ -1,0 +1,25 @@
+{
+  "name": "clippy-companion",
+  "version": "0.1.0",
+  "description": "A small assistant that lives on your screen as a red ribbon: voice actions, look-here, your library, shortcuts and a slim strip mode, on your own AI keys.",
+  "main": "src/main.js",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "smoke": "electron . --smoke",
+    "shots": "electron . --shots",
+    "icons": "electron scripts/make-icons.js",
+    "preview": "electron scripts/preview-thread.js"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0"
+  }
+}

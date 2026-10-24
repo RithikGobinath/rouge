@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A ribbon to the place to click</title>
+<style>
+  :root { --paper: #fbf7ef; --ink: #1f1a22; --ink-2: #4b4350; --mute: #8d8591; --red: #d3243e; --line: rgba(31, 26, 34, .13); --sys: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif; --mark-accent: #ff7a88; --thread-accent: #ff5a6a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 14px/1.45 var(--sys); -webkit-font-smoothing: antialiased; user-select: none; }
+  body { background: radial-gradient(110% 90% at 20% 0%, #fffaf1 0%, #f6eee0 55%, #eadfca 100%); }
+  button { font: inherit; color: inherit; }
+  .hidden { display: none !important; }
+
+  /* an example window to point at */
+  .win { position: fixed; left: 6vw; top: 14vh; width: min(62vw, 760px); border-radius: 14px; overflow: hidden; background: #fffdf8; border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(31, 26, 34, .18), 0 2px 8px rgba(31, 26, 34, .08); }
+  .bar { position: relative; display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; background: #f1e9db; color: var(--ink-2); font-size: 12.5px; border-bottom: 1px solid var(--line); }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgba(31, 26, 34, .16); }
+  .bar span { position: absolute; left: 0; right: 0; text-align: center; pointer-events: none; font-family: var(--serif); font-size: 13px; }
+  .tools { display: flex; gap: 8px; padding: 14px 18px 0; }
+  .btn { padding: 8px 18px; border-radius: 9px; border: 1px solid rgba(31, 26, 34, .2); background: #fff; cursor: pointer; transition: background .15s, transform .1s; }
+  .btn:hover { background: #f3ede2; }
+  .btn:active { transform: scale(.96); }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+  .btn.primary:hover { background: #3a3340; }
+  .doc { display: grid; gap: 12px; padding: 22px 22px 8px; }
+  .doc div { height: 9px; border-radius: 5px; background: #ece4d4; }
+  .doc .m { width: 78%; } .doc .s { width: 52%; } .doc .l { width: 94%; }
+  .foot { display: flex; justify-content: flex-end; padding: 8px 18px 18px; }
+
+  /* the ribbon, bottom right, and the layer the thread is drawn on */
+  #thread { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 7; }
+  #mark { position: fixed; right: 8px; bottom: 8px; z-index: 6; width: 96px; height: 96px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; outline: none; }
+  #mark canvas { position: absolute; left: 50%; top: 50%; width: 156px; height: 156px; transform: translate(-50%, -50%); pointer-events: none; }
+  #mark:focus-visible { box-shadow: 0 0 0 2px rgba(211, 36, 62, .5); }
+
+  /* a label beside the place to click, and a note when something is clicked */
+  .tag, .toast { position: fixed; z-index: 8; padding: 7px 14px; border-radius: 999px; background: var(--ink); color: var(--paper); box-shadow: 0 12px 30px rgba(31, 26, 34, .3); font-size: 13px; white-space: nowrap; animation: rise .22s cubic-bezier(.2, .8, .2, 1) both; }
+  .tag b { color: #ff8b97; font-weight: 600; margin-right: 4px; }
+  .toast { left: 22px; bottom: 22px; }
+  .help { position: fixed; left: 22px; top: 18px; max-width: 440px; color: var(--mute); font-size: 12.5px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .tag, .toast { animation: none; } }
+</style>
+</head>
+<body>
+  <p class="help">The ribbon runs from its corner to the place to click. Click that place and the ribbon draws back in. Click anywhere else to send it there. Click the ribbon itself to draw it back in, or to start the walk.</p>
+
+  <section class="win" aria-label="An example window">
+    <header class="bar"><i></i><i></i><i></i><span>Quarterly report: draft</span></header>
+    <div class="tools">
+      <button type="button" class="btn" id="b-export">Export</button>
+      <button type="button" class="btn" id="b-share">Share</button>
+      <button type="button" class="btn" id="b-print">Print</button>
+    </div>
+    <div class="doc"><div class="l"></div><div class="m"></div><div class="s"></div><div class="l"></div><div class="m"></div><div class="s"></div><div class="m"></div></div>
+    <footer class="foot"><button type="button" class="btn primary" id="b-save">Save</button></footer>
+  </section>
+
+  <canvas id="thread" aria-hidden="true"></canvas>
+  <button type="button" id="mark" aria-label="Start over"><canvas id="mark-canvas" aria-hidden="true"></canvas></button>
+  <div id="tag" class="tag hidden" role="status"><b>Click</b><span id="tag-text"></span></div>
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script>/*MATERIAL*/</script>
+  <script>/*MARK*/</script>
+  <script>/*STRAND*/</script>
+  <script>/*PAGE*/</script>
+</body>
+</html>

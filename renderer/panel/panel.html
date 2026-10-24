@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
+  <title>Clippy</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <aside class="side">
+    <div class="brand">
+      <span class="logo"><canvas id="mark" aria-hidden="true"></canvas></span>
+      <span class="name"><b id="brand-name">Clippy</b><small id="ver">Version 0.1.0</small></span>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Main window" aria-orientation="vertical">
+      <button type="button" role="tab" data-tab="saved" class="on" aria-selected="true"><i class="ic ic-shortcuts"></i>Shortcuts</button>
+      <button type="button" role="tab" data-tab="folders" aria-selected="false"><i class="ic ic-library"></i>Library</button>
+      <button type="button" role="tab" data-tab="settings" aria-selected="false"><i class="ic ic-prefs"></i>Preferences</button>
+    </nav>
+    <div class="live" id="live" title="The hotkeys and the Windows helper"><i></i><span id="live-text">Starting</span></div>
+  </aside>
+
+  <main>
+    <!-- Saved shortcuts -->
+    <section id="tab-saved" class="tab" role="tabpanel">
+      <header class="head"><span class="ey">Shortcuts</span><h1>Do it again, with one phrase.</h1></header>
+
+      <div class="gl wide">
+        <h5>Saved</h5>
+        <p class="m">Do a few things in a row and I offer to save them. Then say “run my shortcut”.</p>
+        <div id="routines" class="rows"></div>
+        <div id="routines-empty" class="empty">
+          <b>Nothing saved yet.</b>
+          <span>Hold <span class="hk-talk"></span> and say “open notepad, new note, type hello”.</span>
+        </div>
+      </div>
+
+      <div class="gl wide tips">
+        <h5>Things to say</h5>
+        <ul>
+          <li><q>Open Notepad, new note, type hello</q></li>
+          <li><q>Press control S</q> <span>or</span> <q>select all, then copy</q></li>
+          <li><q>Search YouTube for lofi hip hop</q></li>
+          <li><q>Volume down</q> <span>·</span> <q>scroll down</q> <span>·</span> <q>minimize this window</q></li>
+          <li><q>Run my shortcut</q></li>
+        </ul>
+        <p class="m">Hold <span class="hk-point"></span> over anything to have it explained on the spot.</p>
+      </div>
+    </section>
+
+    <!-- Library: what it can answer from -->
+    <section id="tab-folders" class="tab" role="tabpanel" hidden>
+      <header class="head"><span class="ey">Library</span><h1>Answers from your own notes.</h1></header>
+      <div class="gl wide">
+        <p class="m">Point me at folders of PDF, Word, text, Markdown or calendar files, and I will read from them when they help with a question.</p>
+        <button type="button" id="add-folder" class="pill">Add a folder</button>
+        <div id="folders" class="frows"></div>
+        <p class="m foot">Up to 200 files a folder, 2 MB a file. Switch a folder off to stop using it; your files are never changed.</p>
+        <p id="folder-note" class="m note" hidden></p>
+      </div>
+    </section>
+
+    <!-- Preferences -->
+    <section id="tab-settings" class="tab" role="tabpanel" hidden>
+      <header class="head"><span class="ey">Preferences</span><h1>Set it up your way.</h1></header>
+
+      <div class="gl wide keys">
+        <h5>Your keys</h5>
+        <p class="m">One Anthropic key powers A, B and C. Keys are encrypted on this PC, and saved keys are never shown again.</p>
+        <div class="krows" id="keys"></div>
+        <div class="saverow"><button type="button" id="save-keys" class="pill">Save keys</button><span id="keys-msg" class="msg" role="status"></span></div>
+      </div>
+
+      <div class="gl wide">
+        <h5>Voice</h5>
+        <p class="m" id="voice-line"></p>
+        <div class="setrow"><span><b>Speak replies</b><small>Read answers aloud with a Windows voice. Off unless you turn it on.</small></span><button type="button" class="tg" id="tg-speak" role="switch" aria-checked="false"></button></div>
+        <div class="hot" id="hotkeys"></div>
+        <button type="button" id="reset-keys" class="get rm2">Put the hotkeys back</button>
+      </div>
+
+      <div class="gl wide">
+        <h5>Clippy</h5>
+        <div class="setrow"><span><b>Strip mode</b><small>Folds the ribbon into a slim bar at the top of your screen.</small></span><button type="button" class="tg" id="tg-strip" role="switch" aria-checked="false"></button></div>
+        <div class="setrow"><span><b>Show Clippy</b><small>Hide it and the hotkeys still work.</small></span><button type="button" class="tg" id="tg-show" role="switch" aria-checked="true"></button></div>
+        <div class="setrow" id="corner-row"><span><b>Corner</b><small>Where it waits when strip mode is off.</small></span>
+          <span class="corners" id="corners"><button type="button" data-c="tl" aria-label="Top left"></button><button type="button" data-c="tr" aria-label="Top right"></button><button type="button" data-c="bl" aria-label="Bottom left"></button><button type="button" data-c="br" aria-label="Bottom right"></button></span></div>
+      </div>
+
+      <div class="gl wide">
+        <h5>General</h5>
+        <div class="setrow"><span><b>Start with Windows</b><small>Open quietly at sign-in so the hotkeys are ready.</small></span><button type="button" class="tg" id="tg-login" role="switch" aria-checked="false"></button></div>
+        <div class="setrow"><span><b>Optional Claude Code fallback</b><small id="cc-line">A, B and C use your Anthropic key.</small></span><button type="button" class="tg" id="tg-cc" role="switch" aria-checked="false"></button></div>
+        <div class="setrow"><span><b>Internet access</b><small>Claude can search and read public pages when an answer needs current information. Source links appear with the answer.</small></span><button type="button" class="tg" id="tg-web" role="switch" aria-checked="true"></button></div>
+        <div class="setrow"><span><b>Browser search engine</b><small>Where commands to open a search in your browser go.</small></span>
+          <select id="sel-engine"><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select></div>
+        <details class="adv"><summary>Models</summary>
+          <p class="m">A answers directly or hands harder work to B or C. Only a handoff adds a second request.</p>
+          <label>A — Conversation and routing <input id="model-anthropic-a" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
+          <label>B — Everyday work <input id="model-anthropic-b" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
+          <label>C — Deep reasoning <input id="model-anthropic-c" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
+          <label>Optional speech backup (Gemini) <input id="model-gemini" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
+          <button type="button" id="save-models" class="pill ghost">Save models</button>
+        </details>
+      </div>
+
+      <div class="about">
+        <b id="about-name">Clippy.</b> Keys are encrypted on this PC. Questions and relevant excerpts from your selected folders go directly to the configured AI provider. When internet access is on, Claude can use public web search and page reading. Point-and-ask also sends a close-up of the spot you chose and an overview of your screen.
+        <span id="about-path"></span>
+      </div>
+    </section>
+  </main>
+
+  <div id="snack" class="snack" role="status" hidden></div>
+  <script src="../shared/ribbon.js"></script>
+  <script src="../shared/mark3d.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+'use strict';
+// The composition root: builds the pieces, wires them, and owns the
+// lifecycle. Nothing here knows how to do the real work.
+
+const path = require('path');
+const { spawn } = require('child_process');
+const { app, shell, safeStorage, nativeImage, BrowserWindow } = require('electron');
+const brand = require('./brand');
+
+const ROOT = path.join(__dirname, '..');
+const FLAGS = { shots: process.argv.includes('--shots'), smoke: process.argv.includes('--smoke') };
+const TEST = FLAGS.shots || FLAGS.smoke;
+if (TEST) process.env.CLIPPY_NO_HOTKEYS = '1';
+if (TEST && !process.env.CLIPPY_USER_DATA) process.env.CLIPPY_USER_DATA = require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'clippy-test-'));
+
+app.setName(brand.name);
+app.setAppUserModelId(brand.appId);
+app.setPath('userData', process.env.CLIPPY_USER_DATA || path.join(app.getPath('appData'), brand.dataDir));
+if (!TEST && !app.requestSingleInstanceLock()) { app.quit(); }
+
+const { createLog } = require('./app/log');
+const { createStore } = require('./store');
+const { createRoutines } = require('./routines');
+const { createFolders } = require('./folders/manager');
+const { createApps } = require('./actions/apps');
+const { createExecutor } = require('./actions/executor');
+const { createComputerController } = require('./computer/controller');
+const { createWinSidecar } = require('./win/sidecar');
+const { createSpeech } = require('./voice/speech');
+const { createVoice } = require('./voice/session');
+const { createJev } = require('./voice/jev');
+const { createAI } = require('./ai');
+const { createPointAsk } = require('./pointing/pointAsk');
+const capture = require('./pointing/capture');
+const { createOverlay } = require('./app/overlay');
+const { createOverlayUi } = require('./app/overlayUi');
+const { createHotkeys, spoken } = require('./app/hotkeys');
+const { createPanel } = require('./app/panel');
+const { createTray } = require('./app/tray');
+const { registerIpc } = require('./app/ipc');
+
+const log = createLog(app.getPath('userData'));
+let services = null;
+
+function build() {
+  const dir = app.getPath('userData');
+  const cipher = { available: () => safeStorage.isAsyncEncryptionAvailable(), encrypt: (s) => safeStorage.encryptStringAsync(s), decrypt: async (b) => (await safeStorage.decryptStringAsync(b)).result };
+  const store = createStore({ dir, cipher });
+  const routines = createRoutines({ file: path.join(dir, 'routines.json') });
+  const folders = createFolders({ dir: path.join(dir, 'folders'), log });
+  const apps = createApps({ log });
+  const sidecar = createWinSidecar({ log, ignorePid: process.pid });
+  const speech = createSpeech({ log });
+  let computer = null;
+  const ai = createAI({ store, folders, log, getComputer: () => computer });
+  const overlay = createOverlay({ preload: path.join(ROOT, 'src', 'preload', 'overlay.js'), html: path.join(ROOT, 'renderer', 'overlay', 'overlay.html'), query: FLAGS.shots ? { test: '1' } : undefined, sidecar, log });
+  const ui = createOverlayUi({ overlay });
+  const panel = createPanel({ preload: path.join(ROOT, 'src', 'preload', 'panel.js'), html: path.join(ROOT, 'renderer', 'panel', 'panel.html'), icon: iconImage(), log });
+
+  let voice = null;
+  const paths = Object.fromEntries(['downloads', 'documents', 'desktop', 'pictures', 'music', 'videos'].map((n) => [n, app.getPath(n)]).concat([['home', app.getPath('home')]]));
+  const executor = createExecutor({
+    sidecar, apps, folders, routines, paths, ask: (card) => voice.ask(card), say: ({ text }) => ui.say(text),
+    shell: { openExternal: (u) => shell.openExternal(u), openPath: (p) => shell.openPath(p) },
+    spawnDetached: (file, args) => { const c = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true }); c.on('error', (e) => log(`spawn ${file}: ${e.message}`)); c.unref(); },
+  });
+  computer = createComputerController({ sidecar, executor, ui: { ...ui, ask: (card) => voice.ask(card) }, log });
+
+  let jev = null; let jevKey = '';
+  const getJev = () => {
+    const key = store.getKey('typesafe');
+    if (!key) { jev = null; jevKey = ''; return null; }
+    if (key !== jevKey) { jev = createJev({ apiKey: key }); jevKey = key; }
+    return jev;
+  };
+
+  voice = createVoice({ speech, ui, executor, routines, folders, ai, getJev, apps, sidecar, settings: () => store.settings(), log,
+    // End-to-end tests only: hear a WAV instead of the microphone.
+    listenFile: () => (process.env.CLIPPY_E2E === '1' ? process.env.CLIPPY_E2E_WAV : undefined) });
+  const pointAsk = createPointAsk({ sidecar, ai, overlay, ui, capture, log });
+  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, paths, getJev };
+}
+
+function iconImage() {
+  const img = nativeImage.createFromPath(path.join(ROOT, 'assets', 'icon.png'));
+  return img.isEmpty() ? undefined : img;
+}
+
+async function boot() {
+  services = build();
+  await services.store.init();
+  // End-to-end tests only: start with these keys set.
+  if (process.env.CLIPPY_E2E === '1' && process.env.CLIPPY_E2E_KEYS) await services.store.setKeys(JSON.parse(process.env.CLIPPY_E2E_KEYS));
+  const { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, voice, pointAsk } = services;
+  let paused = false;
+  let applyingFallback = false;
+  let hotkeyStatus = { talk: false, point: false, hide: false, panic: false };
+  let prevFg = null;
+  // A notice sent before the overlay page has loaded would be lost, so early ones wait for it.
+  let overlayReady = false;
+  const early = [];
+  const tell = (text, opts) => { if (overlayReady) ui.notice(text, opts); else early.push([text, opts]); };
+
+  const buildState = async () => {
+    const s = store.settings();
+    return {
+      name: brand.name, version: app.getVersion(), dataDir: app.getPath('userData'), settings: s, keys: store.keyStatus(), claudeCode: s.useClaudeCode ? await ai.claudeCode.available() : false,
+      voice: { available: speech.available, recognizer: speech.recognizer, error: speech.error },
+      helper: { win: sidecar.available },
+      defaultHotkeys: store.defaults().hotkeys,
+      hotkeys: Object.fromEntries(['talk', 'point', 'hide', 'panic'].map((k) => [k, { accel: s.hotkeys[k], ok: hotkeyStatus[k] || paused || process.env.CLIPPY_NO_HOTKEYS === '1' }])),
+      folders: folders.list(), routines: routines.list(),
+    };
+  };
+  let pushTimer = null;
+  const push = () => { clearTimeout(pushTimer); pushTimer = setTimeout(async () => { if (panel.win) panel.send('panel:update', await buildState()); }, 80); };
+
+  const runRoutine = async (r) => {
+    ui.state('acting', { word: 'Doing it', line: r.name });
+    const out = await services.executor.runAll(r.actions, { onStep: (st) => { if (st.phase === 'start') ui.state('acting', { word: 'Doing it', line: st.label }); } });
+    routines.touch(r.id);
+    ui.state(out.ok ? 'ready' : 'idle');
+    setTimeout(() => ui.state('idle'), 900);
+    if (!out.ok && out.note) ui.notice(out.note, { tone: 'error' });
+    return { ok: out.ok, error: out.note };
+  };
+
+  let hotkeys = null;
+
+  hotkeys = createHotkeys({
+    sidecar, log,
+    handlers: {
+      talkDown: async () => {
+        if (!speech.available) { ui.notice('Windows speech recognition is not ready. Click the ribbon and type a command instead.', { tone: 'info' }); return; }
+        const ok = await voice.begin('voice');
+        if (!ok) log('voice.begin refused');
+      },
+      talkUp: async ({ tap }) => {
+        if (tap) { voice.cancel(); ui.notice('Hold the keys while you talk.', { tone: 'info' }); return; }
+        await voice.release();
+      },
+      point: () => { voice.cancel(); pointAsk.trigger(); },
+      toggle: () => { store.patch({ markHidden: !store.settings().markHidden }); },
+      panic: () => { voice.cancel(); pointAsk.close(); ui.closeAll(); ui.state('idle'); store.patch({ markHidden: true }); },
+    },
+  });
+  const registerHotkeys = () => {
+    if (paused || process.env.CLIPPY_NO_HOTKEYS === '1') { hotkeys.unregister(); hotkeyStatus = { talk: false, point: false, hide: false, panic: false }; return; }
+    const wanted = store.settings().hotkeys;
+    hotkeyStatus = hotkeys.register(wanted);
+    log(`hotkeys: ${JSON.stringify(hotkeyStatus)} on ${JSON.stringify(hotkeys.used)}`);
+    // A chord another app owns moves to its nearest free neighbour, and the new one is remembered and said out loud.
+    const moved = Object.fromEntries(Object.entries(hotkeys.used).filter(([k, a]) => a !== wanted[k]));
+    if (Object.keys(moved).length) {
+      applyingFallback = true; store.patch({ hotkeys: moved }); applyingFallback = false;
+      const said = Object.entries(moved).map(([k, a]) => `${spoken(wanted[k])} is taken by another app, so it is ${spoken(a)}`).join('; ');
+      tell(`${said}. Change it any time in Settings, under Voice.`, { tone: 'info' });
+    }
+    if (!hotkeyStatus.talk) tell('Hold-to-talk has no free keys. Pick some in Settings, under Voice, or click the ribbon and type.', { tone: 'error' });
+    push();
+  };
+
+  // ---- the windows and the tray ----------------------------------------------------
+  const trayIcon = nativeImage.createFromPath(path.join(ROOT, 'assets', 'tray-icon.png')).resize({ width: 32, height: 32, quality: 'best' });
+  const tray = createTray({
+    icon: trayIcon, tooltip: () => `${brand.name} · hold ${spoken(hotkeys.used.talk || store.settings().hotkeys.talk)} to talk`, settings: () => store.settings(), paused: () => paused,
+    on: {
+      open: () => panel.open(), quick: () => overlay.send('quick:open', {}), set: (patch) => store.patch(patch),
+      pause: (p) => { paused = p; registerHotkeys(); if (p) { voice.cancel(); pointAsk.close(); overlay.hide(); } else if (!store.settings().markHidden) overlay.show(); tray.update(); },
+      quit: () => app.quit(),
+    },
+  });
+
+  registerIpc({
+    store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, quit: () => app.quit(),
+    onCommandText: (text) => {
+      voice.runText(text).then((ok) => {
+        if (!ok) ui.notice('I am still answering your previous request.', { tone: 'info' });
+      }).catch((e) => {
+        log(`typed request failed: ${e.message}`);
+        ui.notice('That request could not finish. Please try again.', { tone: 'error' });
+      });
+    },
+    onFocusRequest: async () => { try { prevFg = await sidecar.fg(); } catch (_) { prevFg = null; } return overlay.focus(); },
+    onBlurRequest: () => { overlay.blur(); if (prevFg && prevFg.title) sidecar.focusWindow(prevFg.title, '').catch(() => {}); prevFg = null; },
+    onOverlayReady: () => {
+      overlay.send('settings', store.settings());
+      overlayReady = true;
+      for (const [text, opts] of early.splice(0)) ui.notice(text, opts);
+    },
+  });
+
+  // ---- reacting to changes --------------------------------------------------------
+  store.on('settings', (s, changed) => {
+    overlay.send('settings', s);
+    if (changed.includes('hotkeys') && !applyingFallback) registerHotkeys();
+    if (changed.includes('startWithWindows')) app.setLoginItemSettings({ openAtLogin: Boolean(s.startWithWindows), args: ['--hidden'] });
+    if (changed.includes('markHidden') && !paused) { if (s.markHidden) overlay.hide(); else overlay.show(); }
+    tray.update(); push();
+  });
+  store.on('keys', () => { push(); });
+  folders.on('change', push);
+  routines.on('change', push);
+  sidecar.on('availability', push);
+
+  overlay.create();
+  registerHotkeys();
+  if (store.settings().markHidden) overlay.hide();
+
+  // ---- the slow starts, in the background -------------------------------------------
+  if (!FLAGS.shots) {
+    sidecar.start();
+    speech.start();
+    speech.init().then((r) => { log(`speech: ${r.ok ? r.recognizer : r.error}`); push(); });
+    apps.load();
+  }
+  folders.load();
+  folders.refreshAll();
+  if (store.settings().useClaudeCode) ai.claudeCode.available().then(push);
+
+  const first = !store.settings().onboarded && !FLAGS.shots;
+  if (first || process.argv.includes('--panel')) { panel.open(); if (first) store.patch({ onboarded: true }); }
+
+  if (TEST) require('./dev/harness').run({ FLAGS, services, ROOT, log, app, buildState, registerHotkeys });
+}
+
+app.on('second-instance', () => { if (services) services.panel.open(); });
+app.on('window-all-closed', () => { /* the tray keeps the app running */ });
+app.on('before-quit', () => {
+  if (!services) return;
+  services.voice.cancel();
+  services.panel.quit();
+  services.sidecar.stop(); services.speech.stop();
+  services.overlay.destroy();
+});
+app.on('will-quit', () => { const { globalShortcut } = require('electron'); globalShortcut.unregisterAll(); });
+
+app.whenReady().then(boot).catch((e) => { log(`boot failed: ${e.stack || e.message}`); app.exit(1); });
+void BrowserWindow;

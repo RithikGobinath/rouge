@@ -1,0 +1,104 @@
+/* The overlay's look: warm paper cards, ink text, one red. Everything that can take the mouse is listed in overlay.js (UI). */
+:root {
+  --paper: #fbf7ef; --paper-2: #f1e9db; --ink: #1f1a22; --ink-2: #4b4350; --mute: #8d8591;
+  --red: #d3243e; --red-deep: #9c1228; --wash: rgba(211, 36, 62, .09);
+  --line: rgba(31, 26, 34, .13);
+  --sys: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+  --lift: 0 16px 38px rgba(31, 26, 34, .28), 0 2px 6px rgba(31, 26, 34, .14);
+  --mark-accent: #ff6b78; --thread-accent: #ff5a6a;
+  --ih: 40px; --ip: 3px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; color: var(--ink); font: 13px/1.45 var(--sys); -webkit-font-smoothing: antialiased; user-select: none; }
+body.shots { background: var(--shots-bg, transparent); }
+.hidden { display: none !important; }
+button { font: inherit; color: inherit; }
+
+#strand-layer { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 7; }
+
+/* Paper: the one surface every card, bubble and pill is made of. */
+.gl {
+  position: fixed; z-index: 8;
+  background: var(--paper); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--lift);
+  animation: rise .22s cubic-bezier(.2, .8, .2, 1) both;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---- the ribbon at its corner ---- */
+.mark-dock { position: fixed; z-index: 6; width: 96px; height: 96px; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: 50%; outline: none; }
+.mark-dock canvas { position: absolute; left: 50%; top: 50%; width: 156px; height: 156px; transform: translate(-50%, -50%); pointer-events: none; }
+body[data-corner="br"] .mark-dock { right: 8px; bottom: 8px; }
+body[data-corner="bl"] .mark-dock { left: 8px; bottom: 8px; }
+body[data-corner="tr"] .mark-dock { right: 8px; top: 8px; }
+body[data-corner="tl"] .mark-dock { left: 8px; top: 8px; }
+body[data-mode="strip"] .mark-dock { display: none; }
+body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
+
+/* ---- the listening pill ---- */
+.pill { display: flex; align-items: center; gap: 9px; padding: 8px 15px; border-radius: 999px; font-size: 13px; max-width: min(560px, 80vw); white-space: nowrap; }
+.pill .dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 3px var(--wash); animation: blink 1s steps(1) infinite; }
+.pill[data-tone="acting"] .dot, .pill[data-tone="thinking"] .dot { background: var(--ink); box-shadow: 0 0 0 3px rgba(31, 26, 34, .1); animation: none; }
+.pill[data-tone="reading"] .dot { background: var(--red-deep); animation: none; }
+.pill .words { overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.pill .words > bdi { direction: ltr; unicode-bidi: plaintext; }
+@keyframes blink { 50% { opacity: .25; } }
+
+/* ---- bubbles and cards ---- */
+.bubble, .card, .offer, .toast, .quick { padding: 12px 15px; max-width: 380px; }
+.k { margin-bottom: 5px; color: var(--red); font: 700 9.5px/1 var(--sys); letter-spacing: .16em; text-transform: uppercase; }
+.t { font-size: 13.5px; line-height: 1.45; user-select: text; }
+.h { margin-top: 4px; color: var(--mute); font-size: 11px; line-height: 1.35; }
+.sources { display: grid; gap: 5px; margin-top: 9px; max-height: 128px; overflow-y: auto; }
+.source-link { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--red-deep); font: 11px/1.4 var(--sys); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.source-link:hover { color: var(--red); }
+.source-link:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; border-radius: 2px; }
+.a { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.a:empty { display: none; }
+.a button {
+  padding: 5px 14px; border-radius: 999px; border: 1px solid rgba(31, 26, 34, .22); background: transparent;
+  font-weight: 600; font-size: 11.5px; cursor: pointer; transition: transform .1s, background .15s;
+}
+.a button:hover { background: rgba(31, 26, 34, .07); }
+.a button:active { transform: scale(.94); }
+.a button.y { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.a button.y:hover { background: #3a3340; }
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; max-width: 420px; font-size: 13px; }
+.offer .a { margin: 0; }
+.offer .h { flex-basis: 100%; margin-top: 0; }
+.offer .h:empty { display: none; }
+.toast { font-size: 12.5px; max-width: 340px; border-radius: 12px; background: var(--ink); color: var(--paper); border-color: rgba(255, 255, 255, .08); }
+.toast[data-tone="error"] { background: var(--red-deep); }
+.quick { display: flex; width: 360px; padding: 6px 14px; border-radius: 999px; }
+.quick input { flex: 1; min-width: 0; height: 28px; border: 0; outline: none; background: transparent; color: var(--ink); font: 14px var(--sys); user-select: text; }
+.quick input::placeholder { color: var(--mute); }
+
+/* ---- strip mode: a slim paper capsule at the top, the ribbon at its left end ---- */
+.strip {
+  position: fixed; z-index: 7; top: 8px; left: calc(50% - var(--ih) / 2 - var(--ip));
+  width: calc(var(--ih) + var(--ip) * 2); min-height: var(--ih); padding: 0 var(--ip);
+  display: flex; align-items: flex-start; overflow: hidden;
+  background: var(--paper); color: var(--ink); border-radius: calc(var(--ih) / 2);
+  border: 1px solid var(--line); box-shadow: var(--lift);
+  transform-origin: calc(var(--ih) / 2) 50%;
+  transition: width .18s cubic-bezier(.22, 1.12, .36, 1), box-shadow .18s ease;
+  animation: stripIn .4s cubic-bezier(.2, 1.2, .3, 1) both;
+}
+@keyframes stripIn { from { opacity: 0; transform: translateY(-8px) scale(.85); } to { opacity: 1; transform: none; } }
+.strip.free { overflow: visible; }
+.strip-slot { position: relative; flex: 0 0 var(--ih); height: var(--ih); cursor: pointer; }
+.strip-slot canvas { position: absolute; left: 50%; top: 50%; width: calc(var(--ih) * 2.4); height: calc(var(--ih) * 2.4); transform: translate(-50%, -50%); pointer-events: none; }
+.strip-text { display: none; flex-direction: column; justify-content: center; min-height: var(--ih); padding: 0 16px 0 4px; min-width: 0; }
+.strip.has-text .strip-text { display: flex; }
+.strip.has-line .strip-text { padding-top: 5px; padding-bottom: 6px; }
+.strip-word { font: 700 9.5px/14px var(--sys); letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; color: var(--ink-2); }
+.strip-word:empty, .strip-line:empty { display: none; }
+.strip-line { font: 12.5px/1.35 var(--sys); color: var(--ink); white-space: nowrap; }
+.strip.wrap .strip-line { white-space: normal; }
+.strip[data-state="listening"] { box-shadow: var(--lift), 0 0 0 2px rgba(211, 36, 62, .5); }
+.strip[data-state="listening"] .strip-word, .strip[data-state="reading"] .strip-word { color: var(--red); }
+.strip[data-state="thinking"] .strip-word, .strip[data-state="acting"] .strip-word { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) { .gl, .strip { animation: none; } .strip { transition: none; } }

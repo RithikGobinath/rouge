@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
+  <title>Overlay</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body data-mode="corner" data-corner="br">
+  <!-- The thread: the ribbon let out across the screen. It covers the window and never takes the mouse. -->
+  <canvas id="strand-layer" data-task="" aria-hidden="true"></canvas>
+
+  <!-- Strip mode: the ribbon folded into a slim bar at the top of the screen. -->
+  <div id="strip" class="strip hidden" data-state="idle" aria-live="polite">
+    <span id="strip-slot" class="strip-slot"></span>
+    <span class="strip-text"><b id="strip-word" class="strip-word"></b><span id="strip-line" class="strip-line"></span></span>
+  </div>
+
+  <!-- The ribbon, at its corner. -->
+  <button id="mark-dock" class="mark-dock" type="button" aria-label="Click to type a command">
+    <canvas id="mark-canvas" aria-hidden="true"></canvas>
+  </button>
+
+  <div id="pill" class="gl pill hidden"><span class="dot"></span><span id="pill-words" class="words"></span></div>
+
+  <div id="bubble" class="gl bubble hidden" role="status">
+    <div id="bub-k" class="k"></div>
+    <div id="bub-text" class="t"></div>
+    <div id="bub-hint" class="h"></div>
+    <div id="bub-sources" class="sources hidden" aria-label="Sources"></div>
+    <div id="bub-actions" class="a"></div>
+  </div>
+
+  <div id="askfirst" class="gl card hidden" role="dialog" aria-label="Check first">
+    <div class="k">Check first</div>
+    <div id="ask-title" class="t"></div>
+    <div id="ask-hint" class="h"></div>
+    <div class="a"><button id="ask-yes" type="button" class="y">Go ahead</button><button id="ask-no" type="button">Not now</button></div>
+  </div>
+
+  <div id="offer" class="gl offer hidden" role="dialog" aria-label="Save this as a shortcut?">
+    <span id="offer-text">Save that as a shortcut?</span>
+    <span class="a"><button id="offer-keep" type="button" class="y">Save</button><button id="offer-skip" type="button">Skip</button></span>
+    <div id="offer-steps" class="h"></div>
+  </div>
+
+  <div id="quick" class="gl quick hidden" role="dialog" aria-label="Type a command">
+    <input id="quick-input" type="text" placeholder="Tell me what to do, or ask" spellcheck="false" autocomplete="off" maxlength="600">
+  </div>
+
+  <div id="toast" class="gl toast hidden" role="status"></div>
+
+  <script src="../shared/ribbon.js"></script>
+  <script src="../shared/mark3d.js"></script>
+  <script src="../shared/strand.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>

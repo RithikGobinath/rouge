@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: file:;">
+  <title>Sheet</title>
+  <style>
+    html, body { margin: 0; background: #070a16; font: 12px "Segoe UI", sans-serif; color: #8b96ae; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; }
+    figure { margin: 0; position: relative; } img { display: block; width: 100%; border-radius: 4px; }
+    figcaption { position: absolute; left: 8px; top: 6px; background: rgba(0,0,0,.55); color: #cfd3e2; padding: 2px 8px; border-radius: 999px; }
+  </style>
+</head>
+<body><div class="grid" id="g"></div><script src="sheet.js"></script></body>
+</html>

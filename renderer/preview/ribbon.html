@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
+  <title>Animation preview</title>
+  <style>
+    html, body { margin: 0; background: radial-gradient(120% 90% at 20% 0%, #26345f 0%, #11182f 55%, #0a0d1b 100%); color: #cfd3e2; font: 12px "Segoe UI", sans-serif; }
+    .row { display: flex; gap: 6px; padding: 10px 14px 0; align-items: flex-end; }
+    figure { margin: 0; text-align: center; } figcaption { opacity: .55; margin-top: 2px; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div class="row" id="poses"></div>
+  <div class="row" id="open"></div>
+  <div class="row" id="small"></div>
+  <script src="../shared/ribbon.js"></script>
+  <script src="../shared/mark3d.js"></script>
+  <script src="ribbon.js"></script>
+</body>
+</html>

@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A ribbon to the place to click</title>
+<style>
+  :root { --paper: #fbf7ef; --ink: #1f1a22; --ink-2: #4b4350; --mute: #8d8591; --red: #d3243e; --line: rgba(31, 26, 34, .13); --sys: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif; --mark-accent: #ff7a88; --thread-accent: #ff5a6a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 14px/1.45 var(--sys); -webkit-font-smoothing: antialiased; user-select: none; }
+  body { background: radial-gradient(110% 90% at 20% 0%, #fffaf1 0%, #f6eee0 55%, #eadfca 100%); }
+  button { font: inherit; color: inherit; }
+  .hidden { display: none !important; }
+
+  /* an example window to point at */
+  .win { position: fixed; left: 6vw; top: 14vh; width: min(62vw, 760px); border-radius: 14px; overflow: hidden; background: #fffdf8; border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(31, 26, 34, .18), 0 2px 8px rgba(31, 26, 34, .08); }
+  .bar { position: relative; display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; background: #f1e9db; color: var(--ink-2); font-size: 12.5px; border-bottom: 1px solid var(--line); }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgba(31, 26, 34, .16); }
+  .bar span { position: absolute; left: 0; right: 0; text-align: center; pointer-events: none; font-family: var(--serif); font-size: 13px; }
+  .tools { display: flex; gap: 8px; padding: 14px 18px 0; }
+  .btn { padding: 8px 18px; border-radius: 9px; border: 1px solid rgba(31, 26, 34, .2); background: #fff; cursor: pointer; transition: background .15s, transform .1s; }
+  .btn:hover { background: #f3ede2; }
+  .btn:active { transform: scale(.96); }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+  .btn.primary:hover { background: #3a3340; }
+  .doc { display: grid; gap: 12px; padding: 22px 22px 8px; }
+  .doc div { height: 9px; border-radius: 5px; background: #ece4d4; }
+  .doc .m { width: 78%; } .doc .s { width: 52%; } .doc .l { width: 94%; }
+  .foot { display: flex; justify-content: flex-end; padding: 8px 18px 18px; }
+
+  /* the ribbon, bottom right, and the layer the thread is drawn on */
+  #thread { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 7; }
+  #mark { position: fixed; right: 8px; bottom: 8px; z-index: 6; width: 96px; height: 96px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; outline: none; }
+  #mark canvas { position: absolute; left: 50%; top: 50%; width: 156px; height: 156px; transform: translate(-50%, -50%); pointer-events: none; }
+  #mark:focus-visible { box-shadow: 0 0 0 2px rgba(211, 36, 62, .5); }
+
+  /* a label beside the place to click, and a note when something is clicked */
+  .tag, .toast { position: fixed; z-index: 8; padding: 7px 14px; border-radius: 999px; background: var(--ink); color: var(--paper); box-shadow: 0 12px 30px rgba(31, 26, 34, .3); font-size: 13px; white-space: nowrap; animation: rise .22s cubic-bezier(.2, .8, .2, 1) both; }
+  .tag b { color: #ff8b97; font-weight: 600; margin-right: 4px; }
+  .toast { left: 22px; bottom: 22px; }
+  .help { position: fixed; left: 22px; top: 18px; max-width: 440px; color: var(--mute); font-size: 12.5px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .tag, .toast { animation: none; } }
+</style>
+</head>
+<body>
+  <p class="help">The ribbon runs from its corner to the place to click. Click that place and the ribbon draws back in. Click anywhere else to send it there. Click the ribbon itself to draw it back in, or to start the walk.</p>
+
+  <section class="win" aria-label="An example window">
+    <header class="bar"><i></i><i></i><i></i><span>Quarterly report: draft</span></header>
+    <div class="tools">
+      <button type="button" class="btn" id="b-export">Export</button>
+      <button type="button" class="btn" id="b-share">Share</button>
+      <button type="button" class="btn" id="b-print">Print</button>
+    </div>
+    <div class="doc"><div class="l"></div><div class="m"></div><div class="s"></div><div class="l"></div><div class="m"></div><div class="s"></div><div class="m"></div></div>
+    <footer class="foot"><button type="button" class="btn primary" id="b-save">Save</button></footer>
+  </section>
+
+  <canvas id="thread" aria-hidden="true"></canvas>
+  <button type="button" id="mark" aria-label="Start over"><canvas id="mark-canvas" aria-hidden="true"></canvas></button>
+  <div id="tag" class="tag hidden" role="status"><b>Click</b><span id="tag-text"></span></div>
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script>// The ribbon: the material and the geometry shared by the mark (a trefoil
+// knot tied in red satin) and the thread it lets out across the screen.
+//
+// A ribbon here is a centre line, a width direction at each point, and a
+// light. Each short piece of the ribbon is lit from its own surface normal,
+// with a soft body (half-Lambert), a satin streak (an anisotropic highlight
+// that runs across the ribbon where it turns to the light) and a sheen at its
+// edges. Both faces are red; a ribbon with a reverse can show it a shade deeper. Canvas 2D only, no
+// libraries, nothing to load.
+(() => {
+  'use strict';
+
+  const TAU = Math.PI * 2;
+  const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const smooth = (v) => { const x = clamp(v, 0, 1); return (3 - 2 * x) * x * x; };
+  const mix = (a, b, f) => a + (b - a) * f;
+
+  // ---- colour --------------------------------------------------------------------
+  const PALETTE = {
+    front: [206, 14, 30],      // red satin
+    back: [150, 9, 22],        // the underside, deeper
+    shadow: [38, 2, 6],        // the darkest fold
+    spec: [255, 196, 184],     // the streak of light on the weave, warm
+    sheen: [255, 72, 56],      // the glow at a turning edge
+  };
+  const LIGHT = (() => { const l = [-0.42, -0.62, 0.66]; const n = Math.hypot(l[0], l[1], l[2]); return l.map((v) => v / n); })();
+  const HALF = (() => { const h = [LIGHT[0], LIGHT[1], LIGHT[2] + 1]; const n = Math.hypot(h[0], h[1], h[2]); return h.map((v) => v / n); })();
+
+  /**
+   * The colour of one piece of ribbon.
+   * @param {number} nx @param {number} ny @param {number} nz  surface normal, view space, any sign
+   * @param {number} tx @param {number} ty @param {number} tz  direction the ribbon runs
+   * @param {number} depth 0 far .. 1 near
+   * @param {{lift?:number, glint?:number, tint?:number[], tintAmount?:number, oneSided?:boolean}} [o] lift: extra light; glint: travelling-light amount; oneSided: no deeper reverse
+   * @returns {number[]} [r, g, b], 0..255
+   */
+  function shade(nx, ny, nz, tx, ty, tz, depth, o = {}) {
+    const face = nz >= 0 ? 1 : -1;                 // which side of the ribbon is toward us
+    const sx = nx * face; const sy = ny * face; const sz = nz * face;
+    const ndl = sx * LIGHT[0] + sy * LIGHT[1] + sz * LIGHT[2];
+    const wrap = 0.5 + 0.5 * ndl;
+    const body = 0.2 + 0.8 * Math.pow(wrap, 1.35);
+    // satin: bright where the ribbon runs across the half-vector (Kajiya-Kay)
+    const th = tx * HALF[0] + ty * HALF[1] + tz * HALF[2];
+    const along = Math.sqrt(Math.max(0, 1 - th * th));
+    const nh = sx * HALF[0] + sy * HALF[1] + sz * HALF[2];
+    const spec = Math.pow(along, 34) * (0.2 + 0.8 * clamp(nh * 0.5 + 0.5, 0, 1)) * (o.specK == null ? 1 : o.specK);
+    // gloss: the face flashes where the ribbon rolls to mirror the light toward the eye
+    const gloss = Math.pow(clamp((nh - 0.8) / 0.15, 0, 1), 2) * (o.glossK == null ? 1 : o.glossK);
+    const sheen = Math.pow(1 - Math.min(1, Math.abs(nz)), 2.2);
+    const base = o.oneSided || face > 0 ? PALETTE.front : PALETTE.back;
+    const far = 0.72 + 0.28 * clamp(depth, 0, 1);
+    const k = body * far * (1 + (o.lift || 0));
+    const sp = spec * 0.8 * far + gloss * 0.46 * far + (o.glint || 0) * 0.55;
+    const sh = sheen * 0.4 * far;
+    let r = mix(PALETTE.shadow[0], base[0], clamp(k, 0, 1.15)) + PALETTE.spec[0] * sp + PALETTE.sheen[0] * sh;
+    let g = mix(PALETTE.shadow[1], base[1], clamp(k, 0, 1.15)) + PALETTE.spec[1] * sp + PALETTE.sheen[1] * sh;
+    let b = mix(PALETTE.shadow[2], base[2], clamp(k, 0, 1.15)) + PALETTE.spec[2] * sp + PALETTE.sheen[2] * sh;
+    if (o.tint && o.tintAmount) { r = mix(r, o.tint[0], o.tintAmount); g = mix(g, o.tint[1], o.tintAmount); b = mix(b, o.tint[2], o.tintAmount); }
+    return [clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255)];
+  }
+
+  const rgb = (c, a) => (a == null || a >= 1 ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`);
+
+  /** Read "#rrggbb" or "rgb(...)" from a CSS value. */
+  function parseColor(raw, fallback) {
+    const v = String(raw || '').trim();
+    let m = v.match(/^#([0-9a-f]{6})$/i);
+    if (m) { const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+    m = v.match(/rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : fallback;
+  }
+
+  // ---- a soft light on top of everything (the travelling light, the tip) -------------
+  function glow(ctx, x, y, radius, color, strength) {
+    if (strength <= 0 || radius <= 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    g.addColorStop(0, `rgba(255,236,238,${(0.62 * strength).toFixed(3)})`);
+    g.addColorStop(0.3, `rgba(${mix(255, color[0], 0.6) | 0},${mix(120, color[1], 0.6) | 0},${mix(130, color[2], 0.6) | 0},${(0.34 * strength).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- 3D helpers (plain arrays, short and clear) ----------------------------------------
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+  /**
+   * Frames along a curve that do not flip: rotation-minimizing (double reflection).
+   * @param {number[][]} P points  @param {number[][]} T unit tangents
+   * @returns {number[][]} a unit "normal" at every point, perpendicular to its tangent
+   */
+  function transport(P, T) {
+    const n = P.length;
+    const t0 = T[0];
+    const axis = Math.abs(t0[0]) < 0.6 ? [1, 0, 0] : [0, 1, 0];
+    const R = [norm(cross(t0, axis))];
+    for (let i = 0; i < n - 1; i += 1) {
+      const v1 = [P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1], P[i + 1][2] - P[i][2]];
+      const c1 = dot(v1, v1);
+      let r = R[i];
+      if (c1 > 1e-14) {
+        const rl = [0, 1, 2].map((k) => r[k] - (2 / c1) * dot(v1, r) * v1[k]);
+        const tl = [0, 1, 2].map((k) => T[i][k] - (2 / c1) * dot(v1, T[i]) * v1[k]);
+        const v2 = [0, 1, 2].map((k) => T[i + 1][k] - tl[k]);
+        const c2 = dot(v2, v2);
+        r = c2 > 1e-14 ? [0, 1, 2].map((k) => rl[k] - (2 / c2) * dot(v2, rl) * v2[k]) : rl;
+      }
+      R.push(norm(r));
+    }
+    return R;
+  }
+
+  /** Unit tangents of a sampled curve (central differences). A closed curve repeats its first point last, so its ends look across the seam. */
+  function tangents(P, closed) {
+    const n = P.length;
+    return P.map((_, i) => {
+      const a = closed && (i === 0 || i === n - 1) ? P[n - 2] : P[Math.max(0, i - 1)];
+      const b = closed && (i === 0 || i === n - 1) ? P[1] : P[Math.min(n - 1, i + 1)];
+      return norm([b[0] - a[0], b[1] - a[1], b[2] - a[2]]);
+    });
+  }
+
+  window.SatinMaterial = { TAU, clamp, smooth, mix, shade, rgb, parseColor, glow, dot, cross, norm, transport, tangents, PALETTE };
+})();
+</script>
+  <script>// The mark: a trefoil knot tied in red satin ribbon. One closed loop that
+// tumbles slowly and carries a band of light around its own length. When the
+// thread is let out, the last stretch of the ribbon is drawn away from the knot
+// and straightens into a tail (strand.js carries it on across the screen).
+// Canvas 2D, no libraries.
+//
+//   const mark = Mark3D.mount(canvas, { scale: 0.2, focusGate: false });
+//   mark.setState('listening'); mark.setUnravel(0.5); mark.getTailFrame(1);
+(() => {
+  'use strict';
+  const RB = window.SatinMaterial;
+  const { TAU, clamp, smooth, mix } = RB;
+
+  // ---- the shape (lengths in knot radii) ----------------------------------------------
+  const SEAM = [0, -1 / 3, 0];                       // where the loop is closed
+  const TAIL_DIR = RB.norm([0.18, -1, 0.12]);        // the way the tail is drawn out
+  const TAIL_LEN = 1.7;                              // how long the tail is
+  const HALF_WIDTH = 0.185;                          // half the ribbon's width
+  const TWIST_TURNS = 2;                             // whole turns of the ribbon around its own length
+  const TWIST_PHASE = 0.7;
+  const CROWN = 0.34;                                // how much each half of the ribbon rolls away from flat
+  const FOV = 6.2;
+  const BASE_POSE = 2.35;                            // the pose where the loop reads as an S
+
+  const trefoil = (t) => [(Math.sin(t) + 2 * Math.sin(2 * t)) / 3, (Math.cos(t) - 2 * Math.cos(2 * t)) / 3, -Math.sin(3 * t) / 1.2];
+
+  /** How far along the part of the loop that becomes the tail: 0 before it, 1 at the seam. */
+  const tailShare = (t) => smooth((t / TAU - 0.64) / 0.36);
+
+  /** The loop at parameter t (0..2pi); with u > 0 its last stretch is drawn out into a straight tail. */
+  function loopPoint(t, u) {
+    const base = trefoil(t);
+    const q = u > 0 ? tailShare(t) : 0;
+    if (q <= 0) return base;
+    const bow = 0.12 * Math.sin(Math.PI * q);
+    const run = TAIL_LEN * q;
+    const tail = [SEAM[0] + TAIL_DIR[0] * run + bow * 0.6, SEAM[1] + TAIL_DIR[1] * run, SEAM[2] + TAIL_DIR[2] * run + bow];
+    const blend = q * smooth(u);
+    return base.map((v, k) => mix(v, tail[k], blend));
+  }
+
+  // ---- the ribbon along it -------------------------------------------------------------
+  let holonomy = null;                               // how far a transported frame is turned after one lap
+  function lap() {
+    if (holonomy != null) return holonomy;
+    const P = []; for (let i = 0; i < 400; i += 1) P.push(trefoil((i / 399) * TAU));
+    const T = RB.tangents(P, true);
+    const Rn = RB.transport(P, T);
+    const a = Rn[399]; const b = Rn[0];
+    holonomy = Math.atan2(RB.dot(T[0], RB.cross(a, b)), RB.dot(a, b));
+    return holonomy;
+  }
+
+  const viewerInCurveSpace = (() => { const m = matrix(BASE_POSE * 0.26, BASE_POSE * 0.17, 0); return [m[2][0], m[2][1], m[2][2]]; })();
+
+  /** Centre line, tangents and width directions for a given unravel, n samples. */
+  function build(n, u) {
+    const P = []; for (let i = 0; i < n; i += 1) P.push(loopPoint((i / (n - 1)) * TAU, u));
+    const T = RB.tangents(P, u <= 0);
+    const Rn = RB.transport(P, T);
+    const hol = lap();
+    const W = []; const N = []; const H = [];
+    for (let i = 0; i < n; i += 1) {
+      const s = i / (n - 1);
+      const th = TWIST_TURNS * TAU * s + TWIST_PHASE + hol * s;
+      const c = Math.cos(th); const sn = Math.sin(th);
+      const side = RB.cross(T[i], Rn[i]);
+      let w = [Rn[i][0] * c + side[0] * sn, Rn[i][1] * c + side[1] * sn, Rn[i][2] * c + side[2] * sn];
+      const off = u > 0 ? tailShare(s * TAU) * smooth(u) : 0;
+      H.push(1 + 0.9 * off);                           // drawn out, the ribbon fans out wider
+      if (off > 0) {
+        // drawn out, the ribbon loses its twist and turns its face to the viewer
+        let face = RB.norm(RB.cross(T[i], viewerInCurveSpace));
+        if (RB.dot(face, w) < 0) face = [-face[0], -face[1], -face[2]];
+        w = RB.norm([mix(w[0], face[0], off), mix(w[1], face[1], off), mix(w[2], face[2], off)]);
+      }
+      W.push(w); N.push(RB.norm(RB.cross(T[i], w)));
+    }
+    return { P, T, W, N, H, n, u };
+  }
+
+  /** A turn about Y, then X, then the screen: the matrix as three rows. */
+  function matrix(rx, ry, rot) {
+    const cx = Math.cos(rx); const sx = Math.sin(rx); const cy = Math.cos(ry); const sy = Math.sin(ry); const cr = Math.cos(rot); const sr = Math.sin(rot);
+    const apply = (x, y, z) => {
+      const x1 = x * cy + z * sy; const z1 = -x * sy + z * cy;
+      const y1 = y * cx - z1 * sx; const z2 = y * sx + z1 * cx;
+      return [x1 * cr - y1 * sr, x1 * sr + y1 * cr, z2];
+    };
+    const ex = apply(1, 0, 0); const ey = apply(0, 1, 0); const ez = apply(0, 0, 1);
+    return [[ex[0], ey[0], ez[0]], [ex[1], ey[1], ez[1]], [ex[2], ey[2], ez[2]]];
+  }
+  const turn = (m, v) => [m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2], m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2], m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2]];
+
+  // How each state moves and glows. The ribbon stays red; the state shows in how it moves and in the light.
+  const STATES = {
+    idle: { rock: 1, band: 1, glow: 0.3 },
+    ready: { rock: 1.25, band: 1.35, glow: 0.45 },
+    listening: { rock: 1.7, band: 1.9, glow: 0.72 },
+    thinking: { rock: 2.4, band: 2.6, glow: 0.85 },
+    speaking: { rock: 1.5, band: 2.4, glow: 0.8 },
+    reading: { rock: 1.3, band: 2.2, glow: 1.05 },
+  };
+
+  function mount(canvas, opts = {}) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    let size = opts.scale || 0.2;                      // radius of the knot, as a share of the canvas
+    const quiet = opts.focusGate !== false;            // when the page is not focused, draw less often
+    const pauseHidden = opts.pauseWhenHidden !== false;
+    const icon = Boolean(opts.simple);                 // an icon: no halo, a bolder ribbon
+    const halfWidth = HALF_WIDTH * (icon ? 1.3 : 1);
+    let screenTurn = Number(opts.rotate) || 0;
+    let calm = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) || /motion=reduce/.test(String(window.location && window.location.search));
+
+    let state = 'idle'; let running = false; let frame = null; let last = performance.now();
+    let time = opts.startTime == null ? BASE_POSE : Number(opts.startTime);
+    let rock = STATES.idle.rock; let band = STATES.idle.band; let glowAmt = STATES.idle.glow;
+    let bandTime = time; let level = 0; let liveLevel = 0;
+    let unravel = 0; let unravelGoal = 0;
+    let accent = [255, 110, 120]; let accentAt = 0;
+    let boxW = canvas.clientWidth || 0; let boxH = canvas.clientHeight || 0;
+    const geoCache = new Map();
+    let quads = [];
+    let cx = 0; let cy = 0; let R = 1; let dpr = 1;
+
+    const samplesFor = (px) => clamp(Math.round(px * 1.6), 260, 900);
+    function geometry(u) {
+      const n = samplesFor(Math.min(canvas.width, canvas.height) || 200);
+      const step = Math.round(u * 400);
+      const key = `${n}:${step}`;
+      let g = geoCache.get(key);
+      if (!g) { g = build(n, step / 400); geoCache.set(key, g); if (geoCache.size > 40) geoCache.delete(geoCache.keys().next().value); }
+      return g;
+    }
+
+    /** Tumbling a little about its resting pose, less and less as the ribbon is let out, so the tail holds still where the thread starts. */
+    function pose() {
+      const t = BASE_POSE + Math.sin(time * 0.18) * 0.16 * (1 - unravel * 0.85);
+      return matrix(t * 0.26, t * 0.17, screenTurn);
+    }
+    const persp = (z) => FOV / (FOV - z * 1.6);
+    function layout() {
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = Math.max(1, Math.round(boxW * dpr)); const h = Math.max(1, Math.round(boxH * dpr));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      cx = canvas.width / 2; cy = canvas.height / 2; R = Math.min(canvas.width, canvas.height) * size;
+    }
+    function readAccent(now) {
+      if (now - accentAt < 500) return;
+      accentAt = now;
+      accent = RB.parseColor(getComputedStyle(canvas.parentElement || canvas).getPropertyValue('--mark-accent'), [255, 110, 120]);
+    }
+
+    // ---- one frame ---------------------------------------------------------------
+    function draw(now) {
+      if (quiet && typeof document !== 'undefined' && !document.hasFocus() && Math.random() < 0.66) { if (running) frame = requestAnimationFrame(draw); return; }
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const goal = STATES[state] || STATES.idle;
+      const follow = (rate) => 1 - Math.exp(-dt * rate);                   // the share of the way to a goal that one frame covers
+      rock += (goal.rock - rock) * follow(4.5); band += (goal.band - band) * follow(4.5); glowAmt += (goal.glow - glowAmt) * follow(4.5);
+      unravel += (unravelGoal - unravel) * follow(2.75);
+      time += dt * rock;
+      level = liveLevel > level ? liveLevel : level + (liveLevel - level) * Math.min(1, dt * 5);
+      bandTime += dt * band * (1 + level * 0.5);
+      readAccent(now);
+      layout();
+      paint();
+      if (running) frame = requestAnimationFrame(draw);
+    }
+
+    function paint() {
+      const W = canvas.width; const H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      const glowE = Math.min(1.4, glowAmt * (1 + level * 0.6));
+      const closed = 1 - unravel;
+      if (!icon) {
+        // a soft glow behind the knot, warmer and wider the more it is doing
+        const halo = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.55);
+        halo.addColorStop(0, `rgba(${accent[0]},${accent[1]},${accent[2]},${(0.06 + glowE * 0.12) * closed})`);
+        halo.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+      }
+
+      const g = geometry(unravel); const n = g.n;
+      const M = pose();
+      const xs = new Float32Array(n * 3); const ys = new Float32Array(n * 3); const zs = new Float32Array(n * 3);
+      const Nv = new Array(n); const Tv = new Array(n); const Wv = new Array(n);
+      for (let i = 0; i < n; i += 1) {
+        const p = turn(M, g.P[i]); const w = turn(M, g.W[i]);
+        Wv[i] = w; Nv[i] = turn(M, g.N[i]); Tv[i] = turn(M, g.T[i]);
+        const reach = halfWidth * g.H[i];
+        for (let side = -1; side <= 1; side += 1) {
+          const x = p[0] + w[0] * reach * side; const y = p[1] + w[1] * reach * side; const z = p[2] + w[2] * reach * side;
+          const k = persp(z); const j = i * 3 + side + 1;
+          xs[j] = cx + x * R * k; ys[j] = cy + y * R * k; zs[j] = z;
+        }
+      }
+
+      // the travelling light: a soft band that runs round the ribbon
+      const at = ((bandTime * 0.11) % 1 + 1) % 1;
+      const spread = 0.032;
+      const glint = (s) => { let d = Math.abs(s - at); d = Math.min(d, 1 - d); return Math.exp(-(d * d) / (2 * spread * spread)); };
+
+      // each short stretch of ribbon is two half-strips, one either side of the centre line
+      let count = 0;
+      for (let i = 0; i < n - 1; i += 1) {
+        const s = i / (n - 1);
+        const a = i * 3; const b = (i + 1) * 3;
+        const lit = glint(s) * Math.min(1, band * 0.5) * (0.55 + glowE * 0.5);
+        const depth = clamp(0.5 + 0.5 * (zs[a + 1] + zs[b + 1]) / 2, 0, 1);
+        for (let half = 0; half < 2; half += 1) {
+          const sgn = half === 0 ? -1 : 1;
+          const face = RB.norm([Nv[i][0] + sgn * CROWN * Wv[i][0], Nv[i][1] + sgn * CROWN * Wv[i][1], Nv[i][2] + sgn * CROWN * Wv[i][2]]);
+          const col = RB.shade(face[0], face[1], face[2], Tv[i][0], Tv[i][1], Tv[i][2], depth, { glint: lit, lift: lit * 0.25 });
+          const e0 = half === 0 ? a : a + 2; const e1 = half === 0 ? b : b + 2;
+          const q = quads[count] || (quads[count] = {});
+          q.z = (zs[e0] + zs[e1] + zs[a + 1] + zs[b + 1]) / 4;
+          q.x0 = xs[e0]; q.y0 = ys[e0]; q.x1 = xs[a + 1]; q.y1 = ys[a + 1];
+          q.x2 = xs[b + 1]; q.y2 = ys[b + 1]; q.x3 = xs[e1]; q.y3 = ys[e1];
+          q.fill = RB.rgb(col);
+          q.hem = RB.rgb([col[0] * 0.5, col[1] * 0.5, col[2] * 0.5]);
+          count += 1;
+        }
+      }
+      quads.length = count;
+      const order = new Array(count); for (let i = 0; i < count; i += 1) order[i] = i;
+      order.sort((p, q) => quads[p].z - quads[q].z);
+      const seam = Math.max(0.8, dpr * 0.8);
+      ctx.lineJoin = 'round';
+      for (let k = 0; k < count; k += 1) {
+        const q = quads[order[k]];
+        ctx.beginPath(); ctx.moveTo(q.x0, q.y0); ctx.lineTo(q.x1, q.y1); ctx.lineTo(q.x2, q.y2); ctx.lineTo(q.x3, q.y3); ctx.closePath();
+        ctx.fillStyle = q.fill; ctx.fill();
+        ctx.strokeStyle = q.fill; ctx.lineWidth = seam; ctx.stroke();
+        // a darker hem along the outer edge, so the ribbon reads as cloth with an edge
+        ctx.beginPath(); ctx.moveTo(q.x0, q.y0); ctx.lineTo(q.x3, q.y3);
+        ctx.strokeStyle = q.hem; ctx.lineWidth = Math.max(0.7, dpr * 0.85); ctx.lineCap = 'round'; ctx.stroke();
+      }
+
+      // the light, over everything
+      if (!icon) {
+        const j = Math.min(n - 1, Math.max(0, Math.round(at * (n - 1)))) * 3 + 1;
+        RB.glow(ctx, xs[j], ys[j], R * (0.16 + glowE * 0.1), accent, 0.28 + glowE * 0.38);
+      }
+    }
+
+    // ---- where things are, for the thread ---------------------------------------------
+    /** The open end of the ribbon at unravel level u (the closed knot's seam when u is 0), in viewport pixels. */
+    function tailFrame(u) {
+      layout();
+      const g = geometry(u == null ? unravel : clamp(Number(u) || 0, 0, 1));
+      const i = g.n - 1;
+      const M = pose();
+      const p = turn(M, g.P[i]); const w = turn(M, g.W[i]); const t = turn(M, g.T[i]);
+      const r = canvas.getBoundingClientRect();
+      const kx = canvas.width && r.width ? r.width / canvas.width : 1; const ky = canvas.height && r.height ? r.height / canvas.height : 1;
+      const k = persp(p[2]);
+      const px = cx + p[0] * R * k; const py = cy + p[1] * R * k;
+      const reach = halfWidth * g.H[i];
+      const wx = w[0] * reach * R * k * kx; const wy = w[1] * reach * R * k * ky;
+      const tl = Math.hypot(t[0], t[1]) || 1;
+      return { x: r.left + px * kx, y: r.top + py * ky, z: p[2], r: reach * R * k * kx, tx: t[0] / tl, ty: t[1] / tl, wx, wy, hw: Math.hypot(wx, wy), face: Math.abs(turn(M, g.N[i])[2]) };
+    }
+
+    function play() { if (running) return; running = true; last = performance.now(); frame = requestAnimationFrame(draw); }
+    function halt() { running = false; if (frame) cancelAnimationFrame(frame); frame = null; }
+    const onVisibility = () => { if (document.hidden) halt(); else play(); };
+
+    const remeasure = () => { const b = canvas.getBoundingClientRect(); boxW = b.width; boxH = b.height; geoCache.clear(); if (!running) { layout(); paint(); } };
+    let watcher = null;
+    if (window.ResizeObserver) { watcher = new ResizeObserver((e) => { const b = e[e.length - 1].contentRect; boxW = b.width; boxH = b.height; geoCache.clear(); if (!running) { layout(); paint(); } }); watcher.observe(canvas); }
+    window.addEventListener('resize', remeasure);
+
+    layout();
+    if (calm) { time = BASE_POSE; layout(); paint(); canvas.classList.add('mark-static'); } else { play(); if (pauseHidden) document.addEventListener('visibilitychange', onVisibility); }
+
+    return {
+      setState(next) { state = STATES[next] ? next : 'idle'; accentAt = 0; if (calm) { layout(); paint(); } },
+      setReducedMotion(v) { calm = !!v; if (calm) { halt(); unravel = unravelGoal; layout(); paint(); } else play(); },
+      setLevel(v) { if (!calm) liveLevel = clamp(Number(v) || 0, 0, 1); },
+      /** How big the knot is drawn, as a fraction of its canvas (the strip's is smaller than the corner's). */
+      setScale(v) { size = clamp(Number(v) || 0.2, 0.08, 0.4); geoCache.clear(); layout(); if (calm || !running) paint(); },
+      setUnravel(v) { unravelGoal = clamp(Number(v) || 0, 0, 1); if (calm) { unravel = unravelGoal; layout(); paint(); } },
+      getUnravel: () => unravel,
+      setRotate(rad) { screenTurn = Number(rad) || 0; if (calm || !running) { layout(); paint(); } },
+      getRotate: () => screenTurn,
+      getTailAnchor: (u) => tailFrame(u),
+      getTailFrame: (u) => tailFrame(u),
+      /** Draw one still frame at a chosen moment (icons, previews). */
+      still({ at = BASE_POSE, unravel: uu = 0, bandAt = 0.12 } = {}) { time = at; unravel = unravelGoal = clamp(uu, 0, 1); bandTime = bandAt / 0.11; layout(); paint(); },
+      pause() { halt(); },
+      resume() { if (!calm) play(); else { layout(); paint(); } },
+      destroy() { halt(); document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('resize', remeasure); if (watcher) watcher.disconnect(); },
+    };
+  }
+
+  window.Mark3D = { mount };
+})();
+</script>
+  <script>// The thread: the mark's own ribbon, let out across the screen to the one spot
+// it is talking about, and drawn back in when it is done.
+//
+// Everything is in the overlay's CSS pixels. The ribbon leaves the end of the
+// mark's unrolled tail, takes one gentle S-curve to just short of the target and
+// finishes in a small curl, like the end of a gift ribbon. While it travels it
+// rolls slowly about its own length so the satin catches the light, and a small
+// wave runs down it. "Reach" runs from 0 (all of it in the mark) to 1 (all of it
+// out); the mark unrolls its loop as the ribbon leaves.
+//
+//   const thread = Strand.mount(canvas, mark, { onArrive, onRewound });
+//   thread.setTarget({ x, y, w, h });   thread.rewind();
+(() => {
+  'use strict';
+  const RB = window.SatinMaterial;
+  const { TAU, clamp, smooth, mix } = RB;
+
+  const STEP = 3;               // px between samples along the path
+  const SETTLE = 150;           // px over which the ribbon eases from the mark's own width and roll into its own
+  const STOP_SHORT = 12;        // the end of the curve halts this far outside the target
+  const FLARE = 1.12;           // the free ribbon is this much wider than the mark's tail
+  const ROLL = 0.8;             // radians it rolls to either side as it travels
+  const ROLL_EVERY = 230;       // px of ribbon per roll
+  const WAVE = 10;              // px of side-to-side wave while it is let out
+  const CROWN = 0.2;            // how far each half of the ribbon rolls away from flat
+  const REACH_BACK = 15;        // px it reaches back over the mark's tail, fading in, so the two meet without a seam
+  const CURL_TURN = 5.2;        // radians the end of the ribbon curls over
+  const CURL_FROM = 19;         // px: radius of the curl where it starts ...
+  const CURL_TO = 6.5;          // ... and where it ends
+  const CURL_WIDTH = 0.55;      // how narrow the ribbon is at the very end of the curl
+  const HOLD_MS = 30000;        // how long a settled thread keeps moving before it holds still
+  const MORPH_MS = 300;         // aimed at a new spot while out: how long the curve takes to follow
+  const OUT = { base: 650, perPx: 0.25, cap: 800 };      // ms to let the thread out
+  const BACK = { base: 420, perPx: 0.12, cap: 600 };     // ms to draw it in
+
+  const inOut = (v) => { const x = clamp(v, 0, 1); return x < 0.5 ? 4 * x * x * x : 1 - 4 * (1 - x) * (1 - x) * (1 - x); };
+  const outCubic = (v) => { const r = 1 - clamp(v, 0, 1); return 1 - r * r * r; };
+  const gap = (p, q) => Math.hypot(q.x - p.x, q.y - p.y);
+
+  /** The point just outside the target where the curve stops: on the line from its middle toward the mark. */
+  function stopPoint(box, from) {
+    const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
+    const d = Math.hypot(from.x - cx, from.y - cy) || 1;
+    const ux = (from.x - cx) / d; const uy = (from.y - cy) / d;
+    const k = Math.min((box.w / 2 + STOP_SHORT) / Math.max(1e-4, Math.abs(ux)), (box.h / 2 + STOP_SHORT) / Math.max(1e-4, Math.abs(uy)), d - 4);
+    return { x: cx + ux * k, y: cy + uy * k };
+  }
+
+  /**
+   * The curve as four points (where it leaves the mark, two that shape the bend,
+   * where it stops) and the middle of what it reaches for. It leaves the way the
+   * tail already points and bows toward the middle of the screen, so a thread
+   * from a corner sweeps in rather than hugging the edge.
+   */
+  function aimAt(open, box, W, H) {
+    const a = { x: open.x, y: open.y };
+    const b = stopPoint(box, a);
+    const span = gap(a, b) || 1;
+    const ux = (b.x - a.x) / span; const uy = (b.y - a.y) / span;
+    const hl = Math.hypot(open.tx, open.ty) || 1;
+    const hx = open.tx / hl; const hy = open.ty / hl;
+    let sx = -uy; let sy = ux;
+    if (sx * (W / 2 - (a.x + b.x) / 2) + sy * (H / 2 - (a.y + b.y) / 2) < 0) { sx = -sx; sy = -sy; }
+    const bow = clamp(span * 0.12, 14, 120);
+    const leave = Math.min(span * 0.32, 96); const land = Math.min(span * 0.3, 130);
+    const inside = (x, y) => ({ x: clamp(x, 10, W - 10), y: clamp(y, 10, H - 10) });
+    return {
+      a, b,
+      c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
+      c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
+      mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+    };
+  }
+
+  const blendPlans = (p, q, f) => {
+    const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid) };
+  };
+
+  /**
+   * A plan as points along it, each with the length of ribbon behind it: the
+   * curve itself, then a curl that bends away from the target and tightens as it
+   * goes. `main` is the length at the end of the curve, before the curl.
+   */
+  function flatten(plan) {
+    const { a, c1, c2, b, mid } = plan;
+    const n = Math.max(6, Math.ceil((gap(a, c1) + gap(c1, c2) + gap(c2, b)) / STEP));
+    const xs = []; const ys = []; const len = [];
+    for (let i = 0; i <= n; i += 1) {
+      const t = i / n; const u = 1 - t;
+      const w0 = u * u * u; const w1 = 3 * u * u * t; const w2 = 3 * u * t * t; const w3 = t * t * t;
+      xs.push(w0 * a.x + w1 * c1.x + w2 * c2.x + w3 * b.x);
+      ys.push(w0 * a.y + w1 * c1.y + w2 * c2.y + w3 * b.y);
+      len.push(i ? len[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) : 0);
+    }
+    const main = len[n];
+    // the way it is heading as it arrives, and which side the target is on: the curl goes the other way
+    let hx = b.x - c2.x; let hy = b.y - c2.y;
+    const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
+    const side = (hx * (mid.y - b.y) - hy * (mid.x - b.x)) > 0 ? -1 : 1;
+    let heading = Math.atan2(hy, hx); let turned = 0; let x = b.x; let y = b.y;
+    while (turned < CURL_TURN) {
+      const r = mix(CURL_FROM, CURL_TO, turned / CURL_TURN);
+      const dTurn = STEP / r;
+      heading += side * dTurn; turned += dTurn;
+      x += Math.cos(heading) * STEP; y += Math.sin(heading) * STEP;
+      xs.push(x); ys.push(y); len.push(len[len.length - 1] + STEP);
+    }
+    return { n: xs.length, x: Float32Array.from(xs), y: Float32Array.from(ys), len: Float32Array.from(len), main, total: len[len.length - 1] };
+  }
+
+  /** Unit tangents of a polyline, by central differences. */
+  function directions(xs, ys) {
+    const n = xs.length; const tx = new Array(n); const ty = new Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const lo = Math.max(0, i - 1); const hi = Math.min(n - 1, i + 1);
+      const dx = xs[hi] - xs[lo]; const dy = ys[hi] - ys[lo]; const d = Math.hypot(dx, dy) || 1;
+      tx[i] = dx / d; ty[i] = dy / d;
+    }
+    return { tx, ty };
+  }
+
+  function mount(canvas, mark, opts = {}) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !mark) return null;
+    const callback = (fn) => (typeof fn === 'function' ? fn : () => {});
+    const onArrive = callback(opts.onArrive);
+    const onRewound = callback(opts.onRewound);
+    let calm = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) || /motion=reduce/.test(String(window.location && window.location.search));
+
+    let phase = 'rest';                              // rest | out | held | back
+    let box = null;                                  // what it reaches for
+    let plan = null; let earlier = null; let planAt = 0; let flat = null;     // the curve; the one it is following from; when it was set; its points
+    let tail = null;                                 // the mark's open end when the plan was made
+    let reach = 0; let tween = null;                 // how much is out, and what is moving it
+    let heldAt = 0;
+    let tipAt = null;
+    let W = 0; let H = 0; let ratio = 1;
+    let running = false; let raf = null; let prev = performance.now(); let clock = 0;
+    let ink = [255, 96, 108]; let inkAt = 0;
+
+    function fit() {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(2, window.devicePixelRatio || 1);
+      const pw = Math.round(W * ratio); const ph = Math.round(H * ratio);
+      if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
+    }
+    function readInk(now) {
+      if (now - inkAt < 500) return;
+      inkAt = now;
+      ink = RB.parseColor(getComputedStyle(canvas).getPropertyValue('--thread-accent'), [255, 96, 108]);
+    }
+
+    function replan() {
+      fit();
+      const open = mark.getTailFrame(1);
+      if (!open || !box) return false;
+      const now = performance.now();
+      earlier = plan ? currentPlan(now) : null;
+      plan = aimAt(open, box, W, H); planAt = now; flat = null; tail = open;
+      return true;
+    }
+    function currentPlan(now) {
+      const k = (now - planAt) / MORPH_MS;
+      return earlier && k < 1 ? blendPlans(earlier, plan, smooth(k)) : plan;
+    }
+    function currentPath(now) {
+      if (earlier && now - planAt < MORPH_MS) return flatten(currentPlan(now));
+      earlier = null;
+      return flat || (flat = flatten(plan));
+    }
+
+    const moveReach = (to, ms, curve, now) => { tween = { from: reach, to, ms: Math.max(1, ms), at: now, curve }; };
+    const lengthNow = () => (plan ? (flat || (flat = flatten(plan))).total : 0);
+
+    /** Four corner marks round the spot, breathing a little, over a faint wash of colour. */
+    function drawSpot(now, strength) {
+      if (!box || strength <= 0) return;
+      const breathe = 4 + 1.6 * Math.sin(now / 380);
+      const x = box.x - breathe; const y = box.y - breathe; const w = box.w + breathe * 2; const h = box.h + breathe * 2;
+      const leg = clamp(Math.min(w, h) * 0.34, 7, 16);
+      ctx.save(); ctx.scale(ratio, ratio); ctx.globalAlpha = strength;
+      ctx.fillStyle = 'rgba(230,57,80,0.08)';
+      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.fill();
+      ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(232,48,74,0.95)';
+      ctx.beginPath();
+      ctx.moveTo(x, y + leg); ctx.lineTo(x, y); ctx.lineTo(x + leg, y);
+      ctx.moveTo(x + w - leg, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + leg);
+      ctx.moveTo(x + w, y + h - leg); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - leg, y + h);
+      ctx.moveTo(x + leg, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - leg);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /**
+     * The visible length of ribbon as samples: where each is, how far along the
+     * ribbon, how wide, how far rolled, and its two edges. The first stretch is
+     * pulled onto the mark's live tail so the two always meet.
+     */
+    function samples(path, visible, live) {
+      const half0 = Math.max(2, live.r || 6);
+      const phi0 = Math.acos(clamp((live.hw || half0) / half0, 0.12, 1));
+      const dx0 = live.x - path.x[0]; const dy0 = live.y - path.y[0];
+      const px = []; const py = []; const run = [];
+      const hd = Math.hypot(path.x[1] - path.x[0], path.y[1] - path.y[0]) || 1;
+      const ex = (path.x[1] - path.x[0]) / hd; const ey = (path.y[1] - path.y[0]) / hd;
+      for (let k = Math.ceil(REACH_BACK / STEP); k >= 1; k -= 1) { px.push(live.x - ex * k * STEP); py.push(live.y - ey * k * STEP); run.push(-k * STEP); }
+      for (let i = 0; i < path.n && path.len[i] <= visible; i += 1) {
+        const pull = smooth(1 - path.len[i] / SETTLE);
+        px.push(path.x[i] + dx0 * pull); py.push(path.y[i] + dy0 * pull); run.push(path.len[i]);
+      }
+      const n = px.length;
+      if (n < 2) return null;
+      // let out, the ribbon waves a little, most toward its free end; once it has arrived the wave dies away, and it never reaches the curl
+      const amp = phase === 'out' ? WAVE : WAVE * 0.3;
+      const before = directions(px, py);
+      for (let i = 0; i < n; i += 1) {
+        if (run[i] <= 0) continue;
+        const settled = phase === 'out' ? 1 : smooth((visible - run[i]) / 70);
+        const clear = smooth((path.main - run[i]) / 90);
+        const off = amp * Math.sin(run[i] / 140 - clock * 2.6) * smooth(run[i] / SETTLE) * settled * clear;
+        px[i] -= before.ty[i] * off; py[i] += before.tx[i] * off;
+      }
+      const { tx, ty } = directions(px, py);
+      const phi = new Array(n); const shine = new Array(n);
+      const lx = new Array(n); const ly = new Array(n); const rx = new Array(n); const ry = new Array(n);
+      for (let i = 0; i < n; i += 1) {
+        const ease = smooth(run[i] / SETTLE);
+        const tip = path.total > path.main ? smooth((run[i] - path.main) / (path.total - path.main)) : 0;      // 0 along the curve, 1 at the end of the curl
+        const hw = mix(half0, half0 * FLARE, ease) * mix(1, CURL_WIDTH, tip);
+        // a gentle roll, never edge-on: the satin keeps showing its face; it settles flat as it curls
+        const free = ROLL * Math.sin(run[i] / ROLL_EVERY - clock * 1.1) + 0.2 * Math.sin(run[i] / 83 + clock * 0.7);
+        phi[i] = mix(phi0, free, ease) * mix(1, 0.35, tip);
+        shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
+        const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
+        lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
+        rx[i] = px[i] - ty[i] * across; ry[i] = py[i] + tx[i] * across;
+      }
+      return { n, px, py, run, tx, ty, phi, shine, lx, ly, rx, ry };
+    }
+
+    function paintRibbon(s) {
+      ctx.save(); ctx.scale(ratio, ratio); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      // one soft shadow for the whole outline, so the ribbon lifts off whatever is behind it
+      const first = s.run.findIndex((l) => l >= 0);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 11; ctx.shadowOffsetY = 5; ctx.fillStyle = 'rgb(46,3,8)';
+      ctx.beginPath(); ctx.moveTo(s.lx[first], s.ly[first]);
+      for (let i = first + 1; i < s.n; i += 1) ctx.lineTo(s.lx[i], s.ly[i]);
+      for (let i = s.n - 1; i >= first; i -= 1) ctx.lineTo(s.rx[i], s.ry[i]);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      for (let i = 0; i < s.n - 1; i += 1) {
+        const j = i + 1;
+        const c = Math.cos(s.phi[i]); const sn = Math.sin(s.phi[i]);
+        // the width direction W = n cos(phi) + z sin(phi), and the face N = T x W
+        const wx = -s.ty[i] * c; const wy = s.tx[i] * c; const wz = sn;
+        const nx = s.ty[i] * sn; const ny = -s.tx[i] * sn; const nz = c;
+        const sheen = 0.1 * s.shine[i];
+        ctx.globalAlpha = s.run[i] < 0 ? clamp((s.run[i] + REACH_BACK) / REACH_BACK, 0, 1) * 0.9 : 1;
+        for (const side of [-1, 1]) {
+          const face = RB.norm([nx + side * CROWN * wx, ny + side * CROWN * wy, nz + side * CROWN * wz]);
+          const col = RB.shade(face[0], face[1], face[2], s.tx[i], s.ty[i], 0, 0.9 + 0.08 * Math.sin(s.phi[i]), { glint: sheen, lift: sheen * 0.4, specK: 0.55, glossK: 0.6, oneSided: true });
+          const ox = side < 0 ? s.lx : s.rx; const oy = side < 0 ? s.ly : s.ry;
+          const fill = RB.rgb(col);
+          ctx.beginPath(); ctx.moveTo(ox[i], oy[i]); ctx.lineTo(s.px[i], s.py[i]); ctx.lineTo(s.px[j], s.py[j]); ctx.lineTo(ox[j], oy[j]); ctx.closePath();
+          ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = fill; ctx.lineWidth = 0.7; ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(ox[i], oy[i]); ctx.lineTo(ox[j], oy[j]);
+          ctx.strokeStyle = RB.rgb([col[0] * 0.5, col[1] * 0.5, col[2] * 0.5]); ctx.lineWidth = 0.85; ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function frame(now) {
+      const dt = Math.min(0.05, (now - prev) / 1000); prev = now; clock += dt;
+      fit(); readInk(now);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let done = false;
+      if (tween) {
+        const k = clamp((now - tween.at) / tween.ms, 0, 1);
+        reach = tween.from + (tween.to - tween.from) * tween.curve(k);
+        done = k >= 1;
+      }
+      if (mark.setUnravel) mark.setUnravel(clamp(reach * 1.6, 0, 1));
+      if (done && phase === 'out') { phase = 'held'; heldAt = now; tween = null; onArrive(); }
+      else if (done && phase === 'back') { clearAll(); halt(); onRewound(); return; }
+
+      const path = plan ? currentPath(now) : null;
+      if (!path || reach <= 0.001 || !tail) { next(); return; }
+      const visible = reach * path.total;
+      const s = samples(path, visible, mark.getTailFrame() || tail);
+      if (!s) { next(); return; }
+      paintRibbon(s);
+      // the tip the answer sits beside is where the curve ends, not the end of the curl
+      const at = Math.min(s.n - 1, Math.max(0, s.run.findIndex((l) => l >= Math.min(visible, path.main))));
+      tipAt = { x: s.px[at >= 0 ? at : s.n - 1], y: s.py[at >= 0 ? at : s.n - 1] };
+      if (phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
+      drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
+      if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= HOLD_MS)) { halt(); return; }
+      next();
+    }
+
+    function next() { if (running) raf = requestAnimationFrame(frame); }
+    function begin() { if (running) return; running = true; prev = performance.now(); raf = requestAnimationFrame(frame); }
+    function halt() { running = false; if (raf) cancelAnimationFrame(raf); raf = null; }
+    function clearAll() { phase = 'rest'; reach = 0; tween = null; heldAt = 0; tipAt = null; box = null; plan = null; earlier = null; flat = null; }
+    const onResize = () => { if (box && phase !== 'rest') { replan(); frame(performance.now()); } };
+    window.addEventListener('resize', onResize);
+
+    return {
+      /** Let the thread out to a box (window CSS px). Asked again while it is out, it stays out and its end moves. */
+      setTarget(rect) {
+        if (!rect) return this.rewind();
+        box = { x: Number(rect.x) || 0, y: Number(rect.y) || 0, w: Math.max(1, Number(rect.w) || 1), h: Math.max(1, Number(rect.h) || 1) };
+        inkAt = 0;
+        if (!replan()) return false;
+        const now = performance.now();
+        if (phase === 'held') {
+          reach = 1; tween = null; heldAt = now;
+          if (calm) frame(now); else begin();
+          onArrive();
+          return true;
+        }
+        phase = 'out';
+        if (calm) { reach = 1; tween = null; frame(now); phase = 'held'; heldAt = now; halt(); onArrive(); return true; }
+        moveReach(1, Math.min(OUT.cap, OUT.base + lengthNow() * OUT.perPx), inOut, now);
+        begin();
+        return true;
+      },
+      rewind() {
+        if (phase === 'rest') return;
+        const now = performance.now();
+        phase = 'back';
+        if (calm) { if (mark.setUnravel) mark.setUnravel(0); ctx.clearRect(0, 0, canvas.width, canvas.height); clearAll(); halt(); onRewound(); return; }
+        moveReach(0, Math.min(BACK.cap, BACK.base + lengthNow() * BACK.perPx), outCubic, now);
+        begin();
+      },
+      setTask(task) { canvas.dataset.task = String(task || ''); inkAt = 0; },
+      setReducedMotion(v) { calm = !!v; if (calm && phase !== 'rest') { halt(); } },
+      getTip: () => (tipAt ? { x: tipAt.x, y: tipAt.y } : null),
+      getTarget: () => (box ? { ...box } : null),
+      getState: () => ({ rest: 'idle', out: 'unwinding', held: 'pointing', back: 'rewinding' }[phase]),
+      getProgress: () => reach,
+      relayout() { if (box) replan(); },
+      pause() { halt(); },
+      resume() { if (phase !== 'rest' && !calm) begin(); },
+      destroy() { halt(); window.removeEventListener('resize', onResize); },
+    };
+  }
+
+  window.Strand = { mount };
+})();
+</script>
+  <script>(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  const dock = $('#mark'); const tag = $('#tag'); const toast = $('#toast');
+  const mark = Mark3D.mount($('#mark-canvas'), { scale: 0.2, focusGate: false });
+  const thread = Strand.mount($('#thread'), mark, { onArrive: arrived, onRewound: rewound });
+
+  // the places to click, in order
+  const STEPS = [
+    { el: $('#b-export'), label: 'Export', said: 'Exported.' },
+    { el: $('#b-share'), label: 'Share', said: 'Shared.' },
+    { el: $('#b-save'), label: 'Save', said: 'Saved.' },
+  ];
+  const DWELL_MS = 2600;     // a spot the person clicked is held this long, then drawn back in
+  const PAUSE_MS = 600;      // between the ribbon being back in and the next one going out
+  let at = -1;               // the step the ribbon is out to; -1 when it is out to a spot, or in
+  let reaching = null;       // what it is out to: { box, text }
+  let after = null;          // what to do once it is back in
+  let dwell = 0; let toastTimer = 0;
+
+  /** Turn the mark so its open end points at the middle of the page, from whichever corner it sits in. */
+  function aimMark() {
+    mark.setRotate(0);
+    const open = mark.getTailAnchor(1);
+    if (!open) return;
+    const r = dock.getBoundingClientRect();
+    const want = Math.atan2(innerHeight / 2 - (r.top + r.height / 2), innerWidth / 2 - (r.left + r.width / 2));
+    mark.setRotate(want - Math.atan2(open.ty, open.tx));
+  }
+
+  const boxOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  const inside = (box, x, y, slack) => x >= box.x - slack && x <= box.x + box.w + slack && y >= box.y - slack && y <= box.y + box.h + slack;
+
+  function say(text) {
+    clearTimeout(toastTimer);
+    toast.textContent = text; toast.classList.remove('hidden');
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 2600);
+  }
+
+  /** Put the label beside the box, on the side that fits and is farthest from where the ribbon comes in. */
+  function placeTag() {
+    if (!reaching) return;
+    const { box, text } = reaching;
+    $('#tag-text').textContent = text;
+    tag.classList.remove('hidden');
+    const w = tag.offsetWidth; const h = tag.offsetHeight; const gap = 14;
+    const tip = thread.getTip() || { x: innerWidth, y: innerHeight };
+    const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
+    const d = Math.hypot(tip.x - cx, tip.y - cy) || 1;
+    const spots = [
+      { x: box.x, y: box.y + box.h + gap, dir: [0, 1] }, { x: box.x, y: box.y - h - gap, dir: [0, -1] },
+      { x: box.x + box.w + gap, y: cy - h / 2, dir: [1, 0] }, { x: box.x - w - gap, y: cy - h / 2, dir: [-1, 0] },
+    ].map((s) => ({ ...s, fits: s.x >= 8 && s.y >= 8 && s.x + w <= innerWidth - 8 && s.y + h <= innerHeight - 8, away: -(s.dir[0] * (tip.x - cx) + s.dir[1] * (tip.y - cy)) / d }));
+    const pick = spots.filter((s) => s.fits).sort((a, b) => b.away - a.away)[0] || spots[0];
+    tag.style.left = `${clamp(pick.x, 8, innerWidth - w - 8)}px`; tag.style.top = `${clamp(pick.y, 8, innerHeight - h - 8)}px`;
+  }
+
+  function reachFor(box, text, step) {
+    clearTimeout(dwell);
+    at = step; reaching = { box, text };
+    tag.classList.add('hidden');
+    mark.setState('reading');
+    thread.setTarget(box);
+  }
+
+  const goTo = (i) => reachFor(boxOf(STEPS[i].el), STEPS[i].label, i);
+
+  /** The ribbon goes to wherever the person clicked: a small box around the spot. */
+  function spot(x, y) {
+    const s = 56;
+    reachFor({ x: clamp(x - s / 2, 6, innerWidth - s - 6), y: clamp(y - s / 2, 6, innerHeight - s - 6), w: s, h: s }, 'here', -1);
+  }
+
+  /** Draw the ribbon back into the mark; `next`, if there is one, runs once it is in. */
+  function retract(next) {
+    clearTimeout(dwell);
+    after = next || null;
+    tag.classList.add('hidden');
+    if (thread.getState() === 'idle') rewound(); else thread.rewind();
+  }
+
+  function arrived() {
+    mark.setState('ready'); placeTag();
+    if (at < 0) { clearTimeout(dwell); dwell = setTimeout(() => retract(), DWELL_MS); }      // nobody is being walked anywhere: let it go back
+  }
+  function rewound() {
+    clearTimeout(dwell);
+    reaching = null; at = -1; tag.classList.add('hidden'); mark.setState('idle');
+    const next = after; after = null;
+    if (next) setTimeout(next, PAUSE_MS);
+  }
+
+  document.addEventListener('click', (e) => {
+    if (dock.contains(e.target)) { if (thread.getState() === 'idle') goTo(0); else retract(); return; }
+    const i = STEPS.findIndex((s) => s.el === e.target);
+    if (i >= 0) {
+      say(STEPS[i].said);
+      retract(i + 1 < STEPS.length ? () => goTo(i + 1) : () => say('That was the last place to click. Click the mark to see it again.'));
+      return;
+    }
+    if (e.target.closest('.btn')) { say('That one is not part of this walk.'); return; }
+    // the place the ribbon is pointing at, clicked: it has done its job
+    if (reaching && at < 0 && thread.getState() === 'pointing' && inside(reaching.box, e.clientX, e.clientY, 10)) { retract(); return; }
+    spot(e.clientX, e.clientY);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') retract(); });
+  addEventListener('resize', () => {
+    aimMark();
+    if (at >= 0) { reaching.box = boxOf(STEPS[at].el); thread.setTarget(reaching.box); } else thread.relayout();
+  });
+
+  aimMark();
+  requestAnimationFrame(aimMark);
+  setTimeout(() => goTo(0), 900);
+})();
+</script>
+</body>
+</html>
