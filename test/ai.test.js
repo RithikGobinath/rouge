@@ -100,20 +100,20 @@ test('plans: a partially unsupported plan is rejected before any action can run'
   assert.match(seen[0].body.systemInstruction.parts[0].text, /fixed set/i);
 });
 
-test('point and ask: Claude gets the close-up and the overview, and answers in JSON', async (t) => {
+test('point and ask: Claude gets the close-up and answers in JSON', async (t) => {
   const { s, seen, base } = await server(() => claudeReply(JSON.stringify({ route: 'A', mode: 'reply', response: '{"kicker":"Fix","text":"The link points to a file that moved. Relink it from Insert, then Link.","confidence":0.9}' })));
   t.after(() => s.close());
   process.env.CLIPPY_ANTHROPIC_BASE = base;
   const { ai } = await withAI(t, { keys: { anthropic: 'sk-ant-test' } });
-  const r = await ai.explain({ crop: PNG, overview: PNG, element: { type: 'Text', name: 'Error: the linked file was not found' }, window: { title: 'report-draft.docx - Word', process: 'WINWORD' } });
+  const r = await ai.explain({ crop: PNG, element: { type: 'Text', name: 'Error: the linked file was not found' }, window: { title: 'report-draft.docx - Word', process: 'WINWORD' } });
   assert.equal(r.kicker, 'Fix');
   assert.match(r.text, /Relink it from Insert/);
   assert.equal(r.provider, 'anthropic');
   const content = seen[0].body.messages[0].content;
-  assert.deepEqual(content.map((c) => c.type), ['image', 'image', 'text']);
+  assert.deepEqual(content.map((c) => c.type), ['image', 'text']);
   assert.equal(content[0].source.media_type, 'image/png');
-  assert.match(content[2].text, /Error: the linked file was not found/);
-  assert.match(content[2].text, /report-draft\.docx/);
+  assert.match(content[1].text, /Error: the linked file was not found/);
+  assert.match(content[1].text, /report-draft\.docx/);
   assert.match(seen[0].body.system, /Reply with JSON only/);
   assert.equal(seen.length, 1);
 });
@@ -132,9 +132,9 @@ test('point and ask: with no Anthropic key it uses Claude Code, then Gemini, and
   let asked = null;
   const cli = { available: async () => true, ask: async (o) => { asked = o; return '{"kicker":"Explain","text":"From Claude Code.","confidence":0.8}'; } };
   const first = await withAI(t, { claudeCode: cli });
-  const r = await first.ai.explain({ crop: PNG, overview: PNG, question: 'what is this?' });
+  const r = await first.ai.explain({ crop: PNG, question: 'what is this?' });
   assert.equal(r.provider, 'claude-code');
-  assert.equal(asked.images.length, 2);
+  assert.equal(asked.images.length, 1);
   assert.match(asked.prompt, /what is this\?/);
 
   const { s, base } = await server(() => gemReply('{"kicker":"Explain","text":"From Gemini.","confidence":0.6}'));

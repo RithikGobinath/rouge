@@ -50,7 +50,8 @@ test('hold to talk acts on the front window; point and ask answers where the poi
     req.on('end', () => {
       asked.push({ url: req.url, key: req.headers['x-api-key'], body: JSON.parse(body) });
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ content: [{ type: 'text', text: '{"kicker":"Explain","text":"That is the Send button. It sends your note.","confidence":0.9}' }] }));
+      const explain = '{"kicker":"Explain","text":"That is the Send button. It sends your note.","confidence":0.9}';
+      res.end(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify({ route: 'A', mode: 'reply', response: explain }) }] }));
     });
   });
   await new Promise((r) => mock.listen(0, '127.0.0.1', r));
@@ -120,14 +121,14 @@ test('hold to talk acts on the front window; point and ask answers where the poi
     assert.ok(await until(() => asked.length === 1, 20000), `Claude was asked\n${log.join('').slice(-1200)}`);
     assert.equal(asked[0].key, 'sk-ant-e2e');
     const content = asked[0].body.messages[0].content;
-    assert.deepEqual(content.map((c) => c.type), ['image', 'image', 'text']);
-    assert.match(content[2].text, /Send now/);
-    assert.match(content[2].text, new RegExp(title));
+    assert.deepEqual(content.map((c) => c.type), ['image', 'text'], 'close-up only; no whole-screen overview');
+    assert.match(content[1].text, /Send now/);
+    assert.match(content[1].text, new RegExp(title));
     const said = await until(async () => { const v = await overlay.eval('(() => { const b = document.querySelector("#bubble"); return b && !b.classList.contains("hidden") ? document.querySelector("#bub-text").textContent : ""; })()'); return v || null; }, 15000);
     assert.equal(said, 'That is the Send button. It sends your note.');
     assert.equal(await overlay.eval('document.querySelector("#bub-k").textContent'), 'Explain');
     // the picture sent is the display, not an empty frame
-    assert.ok(content[0].source.data.length > 2000 && content[1].source.data.length > 2000);
+    assert.ok(content[0].source.data.length > 2000);
   });
 
   await t.test('the overlay is click-through: a real click lands on the window underneath', async () => {

@@ -49,3 +49,71 @@ test('computer batches preserve order, reject old refs, and stop at cancellation
   assert.equal(c.calls.length, 1);
   c.session.close();
 });
+
+test('a Terminal foreground can transition into Chrome without reading the shell tree', async () => {
+  let processName = 'WindowsTerminal';
+  let hwnd = 7;
+  let serial = 0;
+  const snapshots = [];
+  const asked = [];
+  const sidecar = {
+    fg: async () => ({ hwnd, process: processName, title: processName === 'chrome' ? 'New Tab' : 'PowerShell' }),
+    computerSnapshot: async () => {
+      snapshots.push(processName);
+      return { ok: true, snapshot: { snapshotId: `snapshot-${++serial}`, window: { hwnd, process: processName }, text: 'page body', elements: [{ name: 'Results', type: 'ListItem' }] } };
+    },
+    computerDescribe: async () => ({ ok: true, element: { type: 'Edit', name: 'Address' } }),
+    computerAction: async () => ({ ok: true }),
+    computerRelease: async () => ({ ok: true }),
+  };
+  const executor = {
+    run: async () => {
+      processName = 'chrome';
+      hwnd = 99;
+      return { ok: true };
+    },
+  };
+  const session = createComputerController({
+    sidecar, executor, ui: { ask: async (card) => { asked.push(card); return true; } },
+  }).createSession({});
+  const first = await session.runTool('computer_inspect', {});
+  assert.equal(first.ok, true);
+  assert.equal(first.snapshot.blocked, true);
+  assert.equal(first.snapshot.elements.length, 0);
+  assert.deepEqual(snapshots, [], 'blocked shells are not accessibility-walked');
+  const opened = await session.runTool('computer_act', {
+    snapshotId: first.snapshot.snapshotId,
+    actions: [{ type: 'open_app', app: 'chrome' }],
+  });
+  assert.equal(opened.ok, true);
+  assert.equal(opened.snapshot.blocked, undefined);
+  assert.equal(opened.snapshot.window.process, 'chrome');
+  assert.deepEqual(snapshots, ['chrome']);
+  session.close();
+});
+
+test('Delete in Explorer asks first, matching click Delete', async () => {
+  const asked = [];
+  let serial = 0;
+  const hwnd = 3;
+  const sidecar = {
+    fg: async () => ({ hwnd, process: 'explorer', title: 'Documents' }),
+    computerSnapshot: async () => ({ ok: true, snapshot: { snapshotId: `snapshot-${++serial}`, window: { hwnd, process: 'explorer', title: 'Documents' }, text: '', elements: [] } }),
+    computerDescribe: async () => ({ ok: true, element: { type: 'ListItem', name: 'report.docx' } }),
+    computerAction: async () => ({ ok: true }),
+    computerRelease: async () => ({ ok: true }),
+  };
+  const session = createComputerController({
+    sidecar, executor: {}, ui: { ask: async (card) => { asked.push(card); return false; } },
+  }).createSession({});
+  const initial = await session.runTool('computer_inspect', {});
+  const denied = await session.runTool('computer_act', {
+    snapshotId: initial.snapshot.snapshotId,
+    actions: [{ type: 'key', keys: ['delete'] }],
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, 'declined');
+  assert.equal(asked.length, 1);
+  assert.match(asked[0].hint, /deletes/);
+  session.close();
+});

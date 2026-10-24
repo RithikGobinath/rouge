@@ -32,4 +32,4 @@ Read [project context](docs/CONTEXT.md) for decisions and [the handoff](docs/HAN
 
 `npm test` includes real Windows interaction tests. Do not run it casually: some tests move focus and send actual input. The owner has asked to perform live testing personally.
 
-The initial GitHub import was not validated by executing tests, model requests, or desktop tasks. The `codex/audit-fixes` branch preserves unfinished candidate changes and must not be treated as a completed fix or release.
+The initial GitHub import was not validated by executing tests, model requests, or desktop tasks. Audit-fix implementation lives on `cursor/audit-fixes-27d8` and must not be treated as validated until the owner reviews and runs the Windows suite.

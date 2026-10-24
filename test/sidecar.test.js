@@ -120,6 +120,19 @@ test('the sidecar types, chords, clicks and manages windows', { skip, timeout: 1
     const s = await side.keyState([0x20, 0x11]);
     assert.equal(s.keys['32'], false);
   });
+
+  await t.test('computer snapshot omits SSN, OTP and CVC values', async () => {
+    await ready();
+    const shot = await side.computerSnapshot((await side.fg()).hwnd);
+    assert.equal(shot.ok, true);
+    const blob = JSON.stringify(shot.snapshot);
+    assert.ok(!/123-45-6789/.test(blob), 'SSN value must not leave the helper');
+    assert.ok(!/482910/.test(blob), 'OTP value must not leave the helper');
+    assert.ok(!/\b737\b/.test(blob), 'CVC value must not leave the helper');
+    const names = (shot.snapshot.elements || []).map((e) => String(e.name || '').toLowerCase());
+    assert.ok(!names.includes('ssn') && !names.includes('otp') && !names.includes('cvc'), 'private fields are dropped from the element list');
+    await side.computerRelease(shot.snapshot.snapshotId);
+  });
 });
 
 test('the sidecar refuses an unknown key name before sending anything', { skip }, () => {

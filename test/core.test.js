@@ -90,6 +90,9 @@ test('ask first: sends, deletes and buys wait for a yes; the rest do not', () =>
   assert.equal(classify(enter, { fg: { title: 'Inbox - Outlook', process: 'olk' }, typedRecently: true }).ask, true, 'Enter after typing in a mail window sends');
   assert.equal(classify(enter, { fg: { title: 'Inbox - Outlook', process: 'olk' }, typedRecently: false }).ask, false);
   assert.equal(classify(enter, { fg: { title: 'Untitled - Notepad', process: 'notepad' }, typedRecently: true }).ask, false);
+  const del = { type: 'press_keys', keys: ['delete'], label: 'Delete' };
+  assert.equal(classify(del, { fg: { title: 'Documents', process: 'explorer' } }).ask, true, 'Delete in Explorer asks first');
+  assert.equal(classify(del, { fg: { title: 'Untitled - Notepad', process: 'notepad' } }).ask, false);
 });
 
 test('routines: save, find by name, newest by default, rename, remove', (t) => {

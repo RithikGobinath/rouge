@@ -115,7 +115,6 @@
   const sw = (id, key, invert) => { const b = $(id); b.addEventListener('click', () => { const on = b.getAttribute('aria-checked') !== 'true'; api.setSettings({ [key]: invert ? !on : on }); }); };
   sw('#tg-speak', 'speakReplies'); sw('#tg-strip', 'strip'); sw('#tg-show', 'markHidden', true); sw('#tg-login', 'startWithWindows'); sw('#tg-cc', 'useClaudeCode');
   sw('#tg-web', 'webAccess');
-  $('#sel-engine').addEventListener('change', (e) => api.setSettings({ searchEngine: e.target.value }));
   $('#corners').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) api.setSettings({ markCorner: b.dataset.c }); });
   $('#save-models').addEventListener('click', async () => {
     const models = Object.fromEntries(MODEL_FIELDS.map(([id, key]) => [key, $(id).value.trim()]));
@@ -130,7 +129,7 @@
   function acceleratorFrom(e) {
     const mods = [e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
     let key = null;
-    if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3); else if (/^Digitd$/.test(e.code)) key = e.code.slice(5); else if (/^F([1-9]|1d|2[0-4])$/.test(e.code)) key = e.code; else if (NAMED[e.code]) key = NAMED[e.code];
+    if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3); else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5); else if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.code)) key = e.code; else if (NAMED[e.code]) key = NAMED[e.code];
     return mods.length && key ? [...mods, key].join('+') : null;
   }
   function startRecording(id) { recording = id; render(); }
@@ -154,7 +153,6 @@
     const set = (id, v) => $(id).setAttribute('aria-checked', String(Boolean(v)));
     set('#tg-speak', s.speakReplies); set('#tg-strip', s.strip); set('#tg-show', !s.markHidden); set('#tg-login', s.startWithWindows); set('#tg-cc', s.useClaudeCode);
     set('#tg-web', s.webAccess !== false);
-    $('#sel-engine').value = s.searchEngine;
     for (const b of document.querySelectorAll('#corners button')) b.classList.toggle('on', b.dataset.c === s.markCorner);
     $('#corner-row').style.opacity = s.strip ? '.45' : '1';
     $('#cc-line').textContent = S.claudeCode ? 'Claude Code is available as a fallback without an Anthropic key. A, B and C use your Anthropic key.' : 'Claude Code was not found. Save an Anthropic key to use A, B and C.';

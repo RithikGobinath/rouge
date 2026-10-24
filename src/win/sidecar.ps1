@@ -488,12 +488,14 @@ namespace Sidecar {
       }
       return false;
     }
+    // Keep in sync with src/pointing/private-fields.json / sensitive.js.
     static bool Secret(AutomationElement e) {
       if (e.Current.IsPassword) return true;
       string type = TypeOf(e);
       if (type != "Edit" && type != "ComboBox") return false;
       string label = (e.Current.Name + " " + e.Current.AutomationId).ToLowerInvariant();
-      return System.Text.RegularExpressions.Regex.IsMatch(label, @"password|passcode|secret|api.?key|credit.?card|card.?number|cvv|security.?code|\bpin\b");
+      return System.Text.RegularExpressions.Regex.IsMatch(label,
+        @"password|passcode|passwd|\bpwd\b|\bpin\b|\botp\b|cvv|cvc|\bcard\b|credit|debit|account|routing|\bssn\b|passport|secret|credential|social\s*security|national\s*id|government\s*id|tax\s*id|security\s*code|verification\s*code|one\s*time\s*code|drivers?\s*licen[cs]e|api\s*key|access\s*token|refresh\s*token");
     }
     static bool Visible(AutomationElement e, IntPtr h) {
       if (e.Current.IsOffscreen) return false;

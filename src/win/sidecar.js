@@ -21,6 +21,7 @@ function createWinSidecar(opts = {}) {
     log: opts.log,
     spawn: opts.spawn,
     pingTimeoutMs: 30000,
+    restartOnTimeout: true,
   });
   const call = (op, params, ms) => proc.request(op, params, ms);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,6 +42,9 @@ function createWinSidecar(opts = {}) {
     const all = [...watchers.values()];
     return call('watch.start', { keys: [...new Set(all.flatMap((w) => w.keys))], click: all.some((w) => w.click), fg: all.some((w) => w.fg) });
   };
+  proc.on('availability', (available) => {
+    if (available) Promise.resolve(applyWatch()).catch(() => {});
+  });
 
   return Object.assign(proc, {
     /** @returns {Promise<FgWindow>} the window the user is working in, never one of ours */
@@ -50,7 +54,7 @@ function createWinSidecar(opts = {}) {
     fromPoint: (x, y) => warm(() => call('uia.frompoint', { x, y, ignorePid }, 5000), (r) => !r.element && r.hwnd !== 0),
     uiaList: (hwnd, max = 150) => warm(() => call('uia.list', { hwnd, max }, 6000), (r) => r.elements.length === 0),
     uiaFind: (name, hwnd, type) => warm(() => call('uia.find', { name, hwnd, type }, 6000), (r) => !r.element),
-    uiaInvoke: (name, type) => warm(() => call('uia.invoke', { name, type, ignorePid }, 8000), (r) => !r.ok),
+    uiaInvoke: (name, type, guard) => warm(() => call('uia.invoke', { name, type, ignorePid, ...(guard || {}) }, 8000), (r) => !r.ok),
     /** The control with keyboard focus, so typing never lands in a password box. */
     focused: () => call('uia.focused', {}, 3000),
     // Computer sessions use private, generation-scoped UIA refs; legacy voice calls keep their existing IDs.
@@ -58,11 +62,11 @@ function createWinSidecar(opts = {}) {
     computerDescribe: (snapshotId, ref) => call('computer.describe', { snapshotId, ref, ignorePid }, 5000),
     computerAction: (snapshotId, action) => call('computer.act', { snapshotId, ...action, ignorePid, expiresAt: Date.now() + 6500 }, 8000),
     computerRelease: (snapshotId) => call('computer.release', { snapshotId }, 3000),
-    typeText: (text, delayMs = 4) => call('input.text', { text, delayMs }, 4000 + String(text).length * (delayMs + 3)),
+    typeText: (text, delayMs = 4, guard) => call('input.text', { text, delayMs, ...(guard || {}) }, 4000 + String(text).length * (delayMs + 3)),
     /** @param {string[]} keys canonical names, e.g. ['ctrl','s'] */
-    chord: (keys) => call('input.chord', { vks: chordVks(keys) }),
+    chord: (keys, guard) => call('input.chord', { vks: chordVks(keys), ...(guard || {}) }),
     media: (op, count = 1) => call('input.vk', { vk: MEDIA_VK[op], count }, 3000 + count * 30),
-    click: (x, y, button = 'left', double = false) => call('input.click', { x, y, button, double }),
+    click: (x, y, button = 'left', double = false, guard) => call('input.click', { x, y, button, double, ...(guard || {}) }),
     move: (x, y) => call('input.move', { x, y }),
     /** Tap a raw virtual key (a key no app uses, to keep a held Alt from opening a menu bar). */
     tap: (vk, count = 1) => call('input.vk', { vk, count }),

@@ -24,4 +24,4 @@ Read README.md, docs/CONTEXT.md, docs/HANDOFF.md, and docs/AUDIT.md before chang
 
 ## Current validation state
 
-The audit-fix branch is incomplete and unvalidated. See docs/HANDOFF.md before continuing it. No audit item is closed merely because candidate code exists.
+Audit-fix implementation is on `cursor/audit-fixes-27d8` (see docs/HANDOFF.md and docs/AUDIT.md). All 16 items have code; none are closed until owner review and live Windows validation. No audit item is closed merely because candidate code exists.

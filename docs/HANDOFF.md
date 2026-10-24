@@ -1,33 +1,43 @@
 # Development handoff
 
-Recorded 2026-10-24.
+Recorded 2026-10-24. Updated after the audit-fix completion pass on `cursor/audit-fixes-27d8`.
 
 ## Repository history
 
 main imports the current desktop source, then adds the Rouge product identity and sanitized context. Existing private runtime data is not part of this repository.
 
-codex/audit-fixes preserves the candidate edits staged before publication. These edits are incomplete, unreviewed as a combined change, untested, and not deployed to the running application. They are a recovery point, not a finished patch.
+codex/audit-fixes preserves the earlier unfinished candidate edits. The active completion work lives on `cursor/audit-fixes-27d8` (Ponytail Full: smallest complete change on the existing Electron/JS/C# stack).
 
-## Audit work in progress
+## Audit work status
 
-The full 16-item fix list is in AUDIT.md. All items remain open pending review and validation.
+The 16-item list is in AUDIT.md. Candidate and completed code now cover all items; **none are closed until the owner reviews and validates**. Live tests, model calls and desktop trials were not run in this pass (owner-reserved).
 
-Candidate edits were divided across native privacy/control, helper recovery, document/calendar handling, and application integration. Partial application changes include placing panel routines in the cancellable request session, stricter confirmation responses, and verified legacy input targets. Candidate data changes include DOCX expansion bounds and preserving calendar time zones. Candidate native/runtime work includes private-field filtering, safer pointing captures, blocked-window transitions, helper timeout recovery and speech reinitialization.
+Completed in code (pending validation):
 
-Do not assume a candidate was finished because a file was copied into its stage. Some staged files are unchanged copies. The following integration patch was rejected before execution: destructive-key classification, hotkey parsing corrections, removal of the inactive search preference, and related settings changes. Completion-evidence enforcement and updated routing fixtures also still need work.
-
-The last interruption came from automatic approval review being unable to complete after a usage limit was reached. It was not a finding that the code was unsafe. No workaround or partially reviewed install was performed.
+1. Native `Secret()` aligned with `private-fields.json` / `sensitive.js` (SSN, OTP, CVC, …).
+2. Point-and-ask: no whole-screen overview; nearby private rects masked; refuse when the control list is truncated.
+3. Panel shortcuts run through the cancellable voice session; overlap rejected.
+4. Legacy executor verifies window/focus before input and rechecks after confirmation.
+5. Delete/Backspace in Explorer require the same confirmation as click-Delete.
+6. Conditional “yes, but …” no longer counts as approval.
+7. Computer agent requires meaningful observation / flight evidence before accepting completion.
+8. Helper operation timeouts restart the JSONL process; watches restore on sidecar availability.
+9. DOCX expansion bounds per entry and total.
+10. ICS recurrence keeps the event time zone.
+11. Speech reinitializes after helper restart.
+12. Blocked shells (Terminal/PowerShell/…) stub without reading the tree; `open_app` may leave them.
+13. Hotkey digit / F-key patterns corrected.
+14. E2E mock and session notice updated to the route/mode/response contract and Anthropic key copy.
+15. Controller + Windows fixture coverage authored for private fields / Delete / Terminal transition (Windows tests remain owner-run).
+16. Inactive browser search-engine preference removed.
 
 ## Resume procedure
 
 1. Read this file, CONTEXT.md and AUDIT.md.
-2. Compare codex/audit-fixes with main and inspect each candidate source with its callers.
-3. Finish the open fixes without adding the planned browser integration or D watcher to the audit scope.
-4. Check native helper/JavaScript compilation and author missing regression cases. Do not execute tests or desktop interactions unless the owner changes the testing instruction.
-5. Review the complete change before applying it to the running application or merging it into main.
+2. Review the PR on `cursor/audit-fixes-27d8` against main.
+3. Owner: run `npm test` on Windows (moves focus / sends input) and exercise the flight scenario before merging.
+4. Do not treat syntax compilation or authored tests as end-to-end proof.
 
 ## Validation record
 
-Before the audit, the computer-loop addition passed JavaScript syntax compilation and native C# compilation. The app and helper then started successfully. The flight scenario and tests were deliberately not run. Those checks do not validate the later audit candidates.
-
-No tests, model requests, screenshots or desktop task trials were run as part of publishing this repository.
+JavaScript syntax checks were run on touched modules. Native C# embedding was not compiled here (Linux agent host). No tests, model requests, screenshots or desktop task trials were executed in this pass.

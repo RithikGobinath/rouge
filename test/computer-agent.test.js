@@ -100,6 +100,37 @@ test('unobserved completion and deferred actions are rejected; stopped control n
   }
 });
 
+test('Chrome toolbar alone is not completion evidence for a flight search', async () => {
+  const toolbar = {
+    ok: true,
+    snapshot: {
+      snapshotId: 'toolbar',
+      text: '',
+      elements: [
+        { name: 'Back', type: 'Button' },
+        { name: 'Forward', type: 'Button' },
+        { name: 'Reload', type: 'Button' },
+        { name: 'Address', type: 'Edit' },
+      ],
+    },
+  };
+  let requests = 0;
+  const result = await runComputerAgent({
+    task: 'plan', model: 'claude-sonnet-5-5',
+    user: 'Find one-way flights SFO to MSN on October 30',
+    goal: 'one-way flights SFO to MSN October 30 2026',
+    controller: { createSession: () => ({ tools, runTool: async () => toolbar, close: async () => {} }) },
+    request: async () => {
+      requests += 1;
+      if (requests === 1) return { stop_reason: 'tool_use', content: [use('inspect', 'computer_inspect')] };
+      return reply(JSON.stringify({ say: 'Done. Flights are ready.', actions: [] }));
+    },
+  });
+  const output = JSON.parse(result.text);
+  assert.notEqual(output.say, 'Done. Flights are ready.');
+  assert.match(output.say, /could not verify/i);
+});
+
 test('cancellation closes the session before any additional model request', async () => {
   const abort = new AbortController(); let requests = 0; let closed = 0;
   await assert.rejects(runComputerAgent({ task: 'plan', model: 'claude-sonnet-5-5', user: 'Task', goal: 'Task', signal: abort.signal,

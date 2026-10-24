@@ -25,7 +25,6 @@ const DEFAULTS = Object.freeze({
   startWithWindows: false,
   useClaudeCode: false,
   webAccess: true,
-  searchEngine: 'google',
   hotkeys: { talk: 'Control+Alt+V', point: 'Control+Alt+L', hide: 'Control+Alt+H', panic: 'Control+Alt+X' },
   models: {
     gemini: 'gemini-3.6-flash', anthropic: 'claude-sonnet-5-5',
@@ -43,7 +42,6 @@ const VALID = {
   startWithWindows: (v) => typeof v === 'boolean',
   useClaudeCode: (v) => typeof v === 'boolean',
   webAccess: (v) => typeof v === 'boolean',
-  searchEngine: (v) => ['google', 'bing', 'duckduckgo'].includes(v),
   hotkeys: (v) => v && typeof v === 'object' && Object.entries(v).every(([k, a]) => ['talk', 'point', 'hide', 'panic'].includes(k) && typeof a === 'string' && ACCEL.test(a)),
   models: (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([k, m]) => MODEL_NAMES.includes(k) && typeof m === 'string' && MODEL.test(m) && (!CLAUDE_ROLES.has(k) || m.startsWith('claude-'))),
 };

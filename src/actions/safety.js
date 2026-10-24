@@ -15,6 +15,8 @@ const RISKY = [
 
 // Windows where Enter, or Ctrl+Enter, usually sends what was just typed.
 const MESSAGING = /\b(outlook|mail|gmail|slack|teams|discord|whatsapp|telegram|messenger|signal|messages|chat|inbox)\b/i;
+// File managers where Delete/Backspace can remove the current selection.
+const FILE_MANAGER = /\b(explorer|file explorer)\b/i;
 
 const KEY_LABEL = (k) => (Array.isArray(k) ? k.join('+') : '');
 
@@ -28,7 +30,7 @@ function classifyName(name) {
 /**
  * Does this action need a yes first?
  * @param {Object} action
- * @param {{fg?: {title?: string, process?: string}, typedRecently?: boolean}} [ctx]
+ * @param {{fg?: {title?: string, process?: string}, focused?: {name?: string, type?: string}, typedRecently?: boolean}} [ctx]
  * @returns {{ask:boolean, reason?:string, title?:string, hint?:string}}
  */
 function classify(action, ctx = {}) {
@@ -39,10 +41,15 @@ function classify(action, ctx = {}) {
   }
   if (action.type === 'press_keys') {
     const k = KEY_LABEL(action.keys);
-    const sends = k === 'enter' || k === 'ctrl+enter';
     const where = `${(ctx.fg && ctx.fg.title) || ''} ${(ctx.fg && ctx.fg.process) || ''}`;
+    const sends = k === 'enter' || k === 'ctrl+enter';
     if (sends && ctx.typedRecently && MESSAGING.test(where)) {
-      return { ask: true, reason: 'sends something', title: `Press ${action.label}?`, hint: 'This looks like it sends something.' };
+      return { ask: true, reason: 'sends something', title: `Press ${action.label || k}?`, hint: 'This looks like it sends something.' };
+    }
+    // Match click-"Delete": the same removal must wait for a yes when a file manager holds the selection.
+    if ((k === 'delete' || k === 'backspace') && FILE_MANAGER.test(where)) {
+      const focused = ctx.focused && ctx.focused.name ? ` “${clip(titleCase(ctx.focused.name), 24)}”` : '';
+      return { ask: true, reason: 'deletes something', title: `Press ${action.label || titleCase(k)}${focused}?`, hint: 'This looks like it deletes something.' };
     }
     return { ask: false };
   }

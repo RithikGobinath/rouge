@@ -16,7 +16,7 @@ const MAX_FILES = 200;
 const MAX_VISITED = 6000;
 const MAX_DEPTH = 8;
 const SKIP_DIRS = new Set(['node_modules', '$recycle.bin', 'system volume information', 'appdata', '.git']);
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const DATE_WORDS = /\b(today|tomorrow|tonight|week|weekend|month|schedule|calendar|meeting|meetings|due|deadline|exam|midterm|final|class|classes|lecture|appointment|event|events|when|next|upcoming|free|busy|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
 
 const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '').toLowerCase();

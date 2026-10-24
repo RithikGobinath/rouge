@@ -8,6 +8,7 @@ const { validate } = require('./schema');
 const { classify, safeUrl } = require('./safety');
 const { describe } = require('./describe');
 const { SITES } = require('../voice/vocab');
+const { sensitiveTarget } = require('../pointing/sensitive');
 
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -15,6 +16,7 @@ const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 // would let go of them for the system and a typed letter would arrive as Ctrl+Alt+letter, so these wait.
 const KEYBOARD = new Set(['type_text', 'press_keys', 'scroll', 'media']);
 const usesKeyboard = (a) => KEYBOARD.has(a.type) || (a.type === 'window_op' && a.op === 'show_desktop');
+const TARGETED = new Set(['type_text', 'press_keys', 'scroll', 'click']);
 
 /**
  * @typedef {Object} ExecDeps
@@ -38,6 +40,26 @@ function createExecutor(d) {
   let typedAt = 0;
 
   async function frontWindow() { try { return await d.sidecar.fg(); } catch (_) { return null; } }
+
+  async function focusedControl() {
+    const result = await d.sidecar.focused();
+    if (!result || !result.element || sensitiveTarget(result.element)) throw new Error('I could not verify a safe focused control.');
+    return result.element;
+  }
+  const sameControl = (a, b) => Boolean(a && b && a.name === b.name && a.type === b.type
+    && (a.automationId || '') === (b.automationId || '') && (a.pid || 0) === (b.pid || 0)
+    && JSON.stringify(a.rect || null) === JSON.stringify(b.rect || null));
+  async function checkTarget(target, focused) {
+    let current = await frontWindow();
+    if (!target || !target.hwnd || !current || current.hwnd !== target.hwnd) throw new Error('The selected window changed, so I stopped.');
+    if (current.behindSelf) {
+      await d.sidecar.focusWindow(target.title || '', target.process || '');
+      current = await frontWindow();
+      if (!current || current.behindSelf || current.hwnd !== target.hwnd) throw new Error('I could not restore the selected window.');
+    }
+    if (focused && !sameControl(focused, await focusedControl())) throw new Error('Keyboard focus changed, so I stopped.');
+  }
+  const inputGuard = (ctx) => ({ hwnd: ctx.target.hwnd, expiresAt: Date.now() + 6500 });
 
   /** Wait for the app's window to be in front (or to appear and be brought forward). */
   async function waitForApp(spec, before) {
@@ -99,20 +121,14 @@ function createExecutor(d) {
       return err ? { ok: false, note: `I couldn't open ${a.name}.` } : { ok: true };
     },
 
-    async type_text(a) {
-      let fg = await frontWindow();
-      // Our own window has focus (the quick ask box): hand it back to the app behind it first.
-      if (fg && fg.behindSelf && fg.title) { await d.sidecar.focusWindow(fg.title, ''); await sleep(180); fg = await frontWindow(); }
-      if (!fg || !fg.hwnd) return { ok: false, note: 'Click where you want it typed first.' };
-      let focused = null;
-      try { focused = await d.sidecar.focused(); } catch (_) { /* typing is still what was asked */ }
-      if (focused && focused.element && focused.element.isPassword) return { ok: false, note: "I won't type into a password box." };
-      await d.sidecar.typeText(a.text);
+    async type_text(a, ctx) {
+      await checkTarget(ctx.target, ctx.focused);
+      await d.sidecar.typeText(a.text, 4, inputGuard(ctx));
       typedAt = now();
       return { ok: true };
     },
 
-    async press_keys(a) { await d.sidecar.chord(a.keys); return { ok: true }; },
+    async press_keys(a, ctx) { await checkTarget(ctx.target, ctx.focused); await d.sidecar.chord(a.keys, inputGuard(ctx)); return { ok: true }; },
 
     async window_op(a) {
       if (a.op === 'show_desktop') { await d.sidecar.chord(['win', 'd']); return { ok: true }; }
@@ -130,27 +146,31 @@ function createExecutor(d) {
       return { ok: true };
     },
 
-    async scroll(a) {
+    async scroll(a, ctx) {
       const down = a.dir === 'down';
       const key = down ? 'pagedown' : 'pageup';
-      if (a.amount === 'edge') { await d.sidecar.chord(['ctrl', down ? 'end' : 'home']); return { ok: true }; }
+      const press = async (keys) => { await checkTarget(ctx.target, ctx.focused); if (ctx.signal && ctx.signal.aborted) throw new Error('The task was cancelled.'); await d.sidecar.chord(keys, inputGuard(ctx)); };
+      if (a.amount === 'edge') { await press(['ctrl', down ? 'end' : 'home']); return { ok: true }; }
       const reps = a.amount === 'lot' ? 3 : 1;
       for (let i = 0; i < reps; i += 1) {
-        if (a.amount === 'little') { for (let k = 0; k < 4; k += 1) await d.sidecar.chord([down ? 'down' : 'up']); } else await d.sidecar.chord([key]);
+        if (a.amount === 'little') { for (let k = 0; k < 4; k += 1) await press([down ? 'down' : 'up']); } else await press([key]);
         if (i < reps - 1) await sleep(90);
       }
       return { ok: true };
     },
 
-    async click(a) {
+    async click(a, ctx) {
+      await checkTarget(ctx.target);
+      const found = await d.sidecar.uiaFind(a.name, ctx.target.hwnd, ctx.clickTarget.type);
+      if (!found || found.score < 40 || !sameControl(ctx.clickTarget, found.element)) return { ok: false, note: 'That control changed, so I stopped.' };
+      await checkTarget(ctx.target);
       if (a.kind === 'single') {
-        const r = await d.sidecar.uiaInvoke(a.name);
+        const r = await d.sidecar.uiaInvoke(ctx.clickTarget.name, ctx.clickTarget.type, inputGuard(ctx));
         return r && r.ok ? { ok: true } : { ok: false, note: `I couldn't find “${a.name}” on screen.` };
       }
-      const f = await d.sidecar.uiaFind(a.name);
-      if (!f || !f.element || f.score < 40) return { ok: false, note: `I couldn't find “${a.name}” on screen.` };
-      const r = f.element.rect;
-      await d.sidecar.click(Math.round(r.x + r.w / 2), Math.round(r.y + r.h / 2), a.kind === 'right' ? 'right' : 'left', a.kind === 'double');
+      const r = found.element.rect;
+      if (!r) return { ok: false, note: 'That control has no clickable area.' };
+      await d.sidecar.click(Math.round(r.x + r.w / 2), Math.round(r.y + r.h / 2), a.kind === 'right' ? 'right' : 'left', a.kind === 'double', inputGuard(ctx));
       return { ok: true };
     },
 
@@ -188,17 +208,29 @@ function createExecutor(d) {
     if (!v.ok) return { ok: false, note: 'I can only do things from my fixed list.' };
     const action = v.action;
     if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
-    const fg = ['press_keys', 'click'].includes(action.type) ? await frontWindow() : null;
-    const risk = classify(action, { fg: fg || undefined, typedRecently: now() - typedAt < 90000 });
-    if (risk.ask) {
-      const yes = await d.ask({ kicker: 'Check first', title: risk.title, hint: risk.hint });
-      if (!yes) return { ok: false, declined: true, note: 'Okay, I left it.' };
-    }
-    if (ctx.onStep) ctx.onStep({ action, phase: 'start', label: describe(action).present });
     try {
       if (ctx.beforeKeyboard && usesKeyboard(action)) await ctx.beforeKeyboard();
       if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
-      const res = await handlers[action.type](action, ctx);
+      const target = TARGETED.has(action.type) ? await frontWindow() : null;
+      if (target) await checkTarget(target);
+      if (TARGETED.has(action.type) && !target) throw new Error('There is no verified window to act on.');
+      const focused = ['type_text', 'press_keys', 'scroll'].includes(action.type) ? await focusedControl() : null;
+      let clickTarget = null;
+      if (action.type === 'click') {
+        const found = await d.sidecar.uiaFind(action.name, target.hwnd);
+        if (!found || !found.element || found.score < 40) return { ok: false, note: `I couldn't find “${action.name}” on screen.` };
+        clickTarget = found.element;
+        if (!clickTarget.name || sensitiveTarget(clickTarget)) throw new Error('I could not verify a safe control.');
+      }
+      const risk = classify(clickTarget ? { ...action, name: clickTarget.name } : action,
+        { fg: target || undefined, focused, typedRecently: now() - typedAt < 90000 });
+      if (risk.ask) {
+        const yes = await d.ask({ kicker: 'Check first', title: risk.title, hint: risk.hint });
+        if (!yes) return { ok: false, declined: true, note: 'Okay, I left it.' };
+      }
+      if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
+      if (ctx.onStep) ctx.onStep({ action, phase: 'start', label: describe(action).present });
+      const res = await handlers[action.type](action, { ...ctx, target, focused, clickTarget });
       if (ctx.onStep) ctx.onStep({ action, phase: res.ok ? 'done' : 'error', label: res.ok ? describe(action).past : (res.note || 'That did not work.') });
       return res;
     } catch (e) {

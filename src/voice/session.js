@@ -20,7 +20,7 @@ const IDLE_MS = 700;              // after a finished phrase, the last clause ru
 const IDLE_TYPING_MS = 1700;      // ...longer for typed text, which people say in pieces
 const CHAIN_MS = 90000;           // actions this close together count as "a few in a row"
 
-const YES = /^(?:yes|yeah|yep|yup|sure|ok|okay|do it|go ahead|confirm|send it|please do|that's right|correct)\b/i;
+const YES = /^(?:yes|yeah|yep|yup|sure|ok|okay|do it|go ahead|confirm|send it|please do|that's right|correct)(?:[,\s]+(?:please|go ahead|do it))?[.!?\s]*$/i;
 const NO = /^(?:no|nope|not now|don't|do not|cancel|stop|never ?mind|leave it)\b/i;
 const CANCEL = /^(?:stop|cancel|stop that|stop it|stop listening|never\s*mind|forget it|scratch that)[.!?]*$/i;
 
@@ -113,7 +113,7 @@ function createVoice(d) {
     for (const r of out.results || []) {
       if (!r.ok) continue;
       if (r.deferred === 'save_routine') { await saveRoutine(r.action.name); continue; }
-      if (!['run_routine', 'cancel', 'save_routine', 'say', 'wait'].includes(r.action.type)) { ctx.did.push(r.action); noteChain(r.action); }
+      if (ctx.source !== 'routine' && !['run_routine', 'cancel', 'save_routine', 'say', 'wait'].includes(r.action.type)) { ctx.did.push(r.action); noteChain(r.action); }
     }
     if (!out.ok && out.note && !out.declined && !out.cancelled) d.ui.notice(out.note, { tone: 'error' });
     return out;
@@ -252,9 +252,16 @@ function createVoice(d) {
       if (r.answerOnly && !pendingAsk) { d.ui.state('idle'); return; }   // the card was answered by a click meanwhile
       if (pendingAsk && text) {
         const p = pendingAsk;
-        if (YES.test(text)) { p.settle(true); d.ui.state('ready'); return; }
-        if (NO.test(text)) { p.settle(false); d.ui.state('idle'); return; }
-        if (r.answerOnly) { d.ui.notice('Say yes, or not now.', { tone: 'info' }); d.ui.state('ready'); return; }
+        if (YES.test(text) || NO.test(text)) {
+          p.settle(YES.test(text));
+          if (d.ui.closeAll) d.ui.closeAll();
+          d.ui.state('idle'); return;
+        }
+        if (r.answerOnly) {
+          cancel();
+          d.ui.notice('I stopped that action. Please give me the revised request.', { tone: 'info' });
+          return;
+        }
       }
       if (!text) { d.ui.state('idle'); d.ui.notice(source(r) === 'voice' ? 'I did not catch that. Hold the keys and try again.' : '', { tone: 'info' }); return; }
       d.ui.state('thinking', { word: 'Working it out' });
@@ -338,7 +345,15 @@ function createVoice(d) {
     text = String(text || '').trim();
     if (!text) return true;
     if (CANCEL.test(text)) { cancel(); return true; }
-    if (pendingAsk && (YES.test(text) || NO.test(text))) { pendingAsk.settle(YES.test(text)); return true; }
+    if (pendingAsk) {
+      if (YES.test(text) || NO.test(text)) {
+        pendingAsk.settle(YES.test(text));
+        if (d.ui.closeAll) d.ui.closeAll();
+      } else {
+        cancel(); d.ui.notice('I stopped that action. Please give me the revised request.', { tone: 'info' });
+      }
+      return true;
+    }
     if (run || hearing) return false;
     const r = newRun('text');
     run = r; r.text = text; r.released = true;
@@ -349,6 +364,21 @@ function createVoice(d) {
     } finally {
       if (run === r) run = null;
       clearTimeout(r.idleTimer); clearTimeout(r.stableTimer);
+      if (!run && !hearing) d.ui.state('idle');
+    }
+  }
+
+  async function runRoutine(routine) {
+    if (run || hearing || pendingAsk) return { ok: false, error: 'A task is already running. Stop it before starting a shortcut.' };
+    const r = newRun('routine');
+    r.releaseKeys(); r.released = true; run = r;
+    try {
+      d.ui.state('acting', { word: 'Doing it', line: routine.name });
+      const out = await runActions(routine.actions, r);
+      if (out.ok && !r.signal.aborted) d.routines.touch(routine.id);
+      return { ok: out.ok && !r.signal.aborted, error: out.note || (r.signal.aborted ? 'The shortcut was cancelled.' : '') };
+    } finally {
+      if (run === r) run = null;
       if (!run && !hearing) d.ui.state('idle');
     }
   }
@@ -367,7 +397,7 @@ function createVoice(d) {
   }
 
   return {
-    begin, release, cancel, runText, saveRoutine,
+    begin, release, cancel, runText, runRoutine, saveRoutine,
     get active() { return Boolean(run || hearing); },
     get listening() { return Boolean(hearing && !hearing.released); },
     get asking() { return Boolean(pendingAsk); },

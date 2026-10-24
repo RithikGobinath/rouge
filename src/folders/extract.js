@@ -8,6 +8,8 @@ const { unzipSync, strFromU8 } = require('fflate');
 const { parseIcs } = require('./ics');
 
 const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_DOCX_ENTRY = 8 * 1024 * 1024;
+const MAX_DOCX_TOTAL = 16 * 1024 * 1024;
 const TEXT_EXT = new Set(['.txt', '.md', '.markdown', '.text']);
 const SUPPORTED = new Set([...TEXT_EXT, '.pdf', '.docx', '.ics']);
 
@@ -34,7 +36,21 @@ function docxXmlToText(xml) {
 }
 
 function docxText(buf) {
-  const files = unzipSync(new Uint8Array(buf), { filter: (f) => f.name === 'word/document.xml' || /^word\/(?:header|footer|footnotes|endnotes)\d*\.xml$/.test(f.name) });
+  let expanded = 0;
+  const sizes = new Map();
+  const files = unzipSync(new Uint8Array(buf), { filter: (f) => {
+    if (f.name !== 'word/document.xml' && !/^word\/(?:header|footer|footnotes|endnotes)\d*\.xml$/.test(f.name)) return false;
+    if (sizes.has(f.name) || !Number.isSafeInteger(f.originalSize) || f.originalSize < 0 ||
+        !Number.isSafeInteger(f.size) || f.size < 0 || f.size > buf.length ||
+        ![0, 8].includes(f.compression) || f.compression === 0 && f.size !== f.originalSize) throw new Error('invalid Word archive entry');
+    expanded += f.originalSize;
+    if (f.originalSize > MAX_DOCX_ENTRY || expanded > MAX_DOCX_TOTAL) throw new Error('Word document expands beyond the safe size limit');
+    sizes.set(f.name, f.originalSize);
+    return true;
+  } });
+  for (const [name, data] of Object.entries(files)) {
+    if (data.length !== sizes.get(name)) throw new Error('invalid Word archive size');
+  }
   const main = files['word/document.xml'];
   if (!main) throw new Error('not a Word document');
   const parts = [docxXmlToText(strFromU8(main))];
@@ -73,7 +89,13 @@ async function extract(file) {
   if (!SUPPORTED.has(ext)) throw new Error(`unsupported file type ${ext || '(none)'}`);
   const st = await fs.promises.stat(file);
   if (st.size > MAX_BYTES) throw new Error('over 2 MB');
-  const buf = await fs.promises.readFile(file);
+  const chunks = []; let bytes = 0;
+  for await (const piece of fs.createReadStream(file, { highWaterMark: 64 * 1024 })) {
+    bytes += piece.length;
+    if (bytes > MAX_BYTES) throw new Error('over 2 MB');
+    chunks.push(piece);
+  }
+  const buf = Buffer.concat(chunks, bytes);
   if (TEXT_EXT.has(ext)) return { text: buf.toString('utf8').replace(/^﻿/, ''), kind: ext === '.txt' || ext === '.text' ? 'text' : 'markdown' };
   if (ext === '.docx') return { text: docxText(buf), kind: 'word' };
   if (ext === '.pdf') return { text: await pdfText(buf), kind: 'pdf' };

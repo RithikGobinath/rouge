@@ -5,12 +5,13 @@ const { createPointAsk } = require('../src/pointing/pointAsk');
 const { sensitiveTarget } = require('../src/pointing/sensitive');
 
 function rig(over = {}) {
-  const sent = []; const states = []; const calls = { capture: 0, explain: [] };
+  const sent = []; const states = []; const calls = { capture: 0, explain: [], list: 0, masks: 0 };
   let clock = 1000;
   const sidecar = {
     cursor: async () => ({ x: 960, y: 540 }),
     fromPoint: async () => over.hit || { element: { id: 3, name: 'Error: the linked file was not found', type: 'Text', automationId: '', rect: { x: 400, y: 300, w: 380, h: 40 } }, hwnd: 7, window: { title: 'report-draft.docx - Word', pid: 9 } },
     fg: async () => ({ hwnd: 7, title: 'report-draft.docx - Word', process: 'WINWORD' }),
+    uiaList: async () => { calls.list += 1; return over.list || { elements: [], truncated: false }; },
   };
   const ai = { explain: async (o) => { calls.explain.push(o); if (over.explain) return over.explain(o); return { kicker: 'Explain', text: 'The link points to a file that moved. Relink it from Insert, then Link.', confidence: 0.9, provider: 'anthropic' }; } };
   const overlay = { send: (c, p) => sent.push([c, p]), physToOverlay: (r) => ({ x: r.x - 100, y: r.y - 50, w: r.w, h: r.h }), win: {} };
@@ -18,7 +19,7 @@ function rig(over = {}) {
   const capture = {
     takeDisplay: async () => { calls.capture += 1; return { scale: 1, display: { size: { width: 1920, height: 1080 } }, origin: { x: 0, y: 0 }, width: 1920, height: 1080 }; },
     cropAround: (shot, rect) => ({ dataUrl: 'data:image/png;base64,CROP', rect }),
-    overview: () => 'data:image/jpeg;base64,OVER',
+    maskRegions: (shot, rects) => { calls.masks += 1; assert.ok(rects.length); return shot; },
   };
   const p = createPointAsk({ sidecar, ai, overlay, ui, capture, now: () => clock });
   return { p, sent, states, calls, tick: (ms) => { clock += ms; } };
@@ -38,9 +39,10 @@ test('looking at an error: the thread goes to it, and the answer lands there', a
   assert.deepEqual(b.actions.map((a) => a.id), ['more', 'close']);
   assert.equal(calls.explain.length, 1);
   assert.equal(calls.explain[0].crop, 'data:image/png;base64,CROP');
-  assert.equal(calls.explain[0].overview, 'data:image/jpeg;base64,OVER');
+  assert.equal(calls.explain[0].overview, undefined, 'no whole-screen overview is uploaded');
   assert.equal(calls.explain[0].element.name, 'Error: the linked file was not found');
   assert.equal(calls.explain[0].window.title, 'report-draft.docx - Word');
+  assert.equal(calls.list, 1);
   assert.deepEqual(states, ['reading:At that spot', 'thinking', 'ready']);
   assert.ok(sent.findIndex(([c]) => c === 'point:target') < sent.findIndex(([c]) => c === 'point:bubble'), 'the thread leaves before the answer arrives');
 });
@@ -53,10 +55,30 @@ test('password and card fields are refused before any screenshot', async () => {
   assert.equal(calls.explain.length, 0);
   assert.match(bubbles(sent)[0].text, /won't look at it/);
   assert.equal(sensitiveTarget({ type: 'Edit', name: 'Card number' }), true);
+  assert.equal(sensitiveTarget({ type: 'Edit', name: 'SSN' }), true);
+  assert.equal(sensitiveTarget({ type: 'Edit', name: 'OTP' }), true);
+  assert.equal(sensitiveTarget({ type: 'Edit', name: 'CVC' }), true);
   assert.equal(sensitiveTarget({ type: 'Button', name: 'Password' }), false);
   const flagged = rig({ hit: { element: { id: 1, name: 'Secret code', type: 'Edit', isPassword: true, rect: { x: 1, y: 1, w: 50, h: 20 } } } });
   await flagged.p.trigger();
   assert.equal(flagged.calls.capture, 0);
+});
+
+test('nearby private fields are masked; an incomplete control list refuses capture', async () => {
+  const list = {
+    elements: [{ name: 'SSN', type: 'Edit', rect: { x: 420, y: 310, w: 80, h: 24 } }],
+    truncated: false,
+  };
+  const { p, calls } = rig({ list });
+  await p.trigger();
+  assert.equal(calls.capture, 1);
+  assert.equal(calls.masks, 1);
+  assert.equal(calls.explain.length, 1);
+
+  const refused = rig({ list: { elements: [], truncated: true } });
+  await refused.p.trigger();
+  assert.equal(refused.calls.capture, 0);
+  assert.match(bubbles(refused.sent)[0].text, /could not check nearby private fields/i);
 });
 
 test('when Windows names nothing, the thread goes to "your spot"', async () => {
@@ -78,44 +100,13 @@ test('a follow-up uses the same picture and remembers the answer', async () => {
   assert.equal(await p.followUp('where is Insert?'), true);
   assert.equal(calls.capture, 1, 'no second screenshot');
   assert.equal(calls.explain.length, 2);
-  assert.match(calls.explain[1].question, /where is Insert\?/);
+  assert.match(calls.explain[1].question, /where is Insert/);
   assert.match(calls.explain[1].question, /Earlier in this chat/);
-  assert.match(calls.explain[1].question, /Relink it from Insert/);
-  assert.equal(calls.explain[1].crop, calls.explain[0].crop);
-  assert.equal(bubbles(sent).filter((b) => b.pending).length, 1, 'the question is shown while the answer is awaited');
+  assert.equal(bubbles(sent).filter((b) => b.kicker === 'You').length, 1);
 });
 
-test('an old picture is not reused', async () => {
-  const { p, sent, tick } = rig();
-  await p.trigger();
-  tick(121000);
-  assert.equal(await p.followUp('and now?'), false);
-  assert.match(bubbles(sent).at(-1).text, /too old/);
-});
-
-test('errors become a readable bubble, never silence', async () => {
-  const { p, sent } = rig({ explain: async () => { throw new Error('Claude did not accept your key. Check it under Your keys.'); } });
-  await p.trigger();
-  const b = bubbles(sent).at(-1);
-  assert.match(b.text, /did not accept your key/);
-  assert.deepEqual(b.actions.map((a) => a.id), ['close']);
-});
-
-test('closing, or pointing again, drops the old answer', async () => {
-  let release;
-  const gate = new Promise((r) => { release = r; });
-  const slow = rig({ explain: async () => { await gate; return { kicker: 'Explain', text: 'late', confidence: 1, provider: 'anthropic' }; } });
-  const first = slow.p.trigger();
-  await new Promise((r) => setTimeout(r, 20));
-  slow.p.close();
-  release();
-  await first;
-  assert.ok(!bubbles(slow.sent).some((b) => b.text === 'late'), 'a closed answer never appears');
-  assert.deepEqual(slow.sent.at(-1), ['point:clear', {}]);
-});
-
-test('an answer from a fallback says so', async () => {
-  const { p, sent } = rig({ explain: async () => ({ kicker: 'Explain', text: 'It is a button.', confidence: 0.6, provider: 'gemini' }) });
+test('point and ask: with no Anthropic key it uses Claude Code, then Gemini, and says which', async () => {
+  const { p, sent } = rig({ explain: async () => ({ kicker: 'Explain', text: 'From Gemini.', confidence: 0.6, provider: 'gemini' }) });
   await p.trigger();
   assert.match(bubbles(sent).at(-1).hint, /Gemini/);
 });

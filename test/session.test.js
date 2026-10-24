@@ -79,12 +79,18 @@ function fakeUi() {
 
 function fakePc() {
   const pc = { log: [], fg: { hwnd: 1, title: 'Claude', process: 'claude', behindSelf: false }, pending: null };
+  const focused = { name: 'Notes', type: 'Edit', isPassword: false, automationId: '', pid: 1, rect: { x: 1, y: 1, w: 40, h: 20 } };
   pc.sidecar = {
     fg: async () => { if (pc.pending && --pc.pending.polls <= 0) { pc.fg = pc.pending.window; pc.pending = null; } return { ...pc.fg }; },
-    focused: async () => ({ element: { name: 'Notes', type: 'Edit', isPassword: false } }),
+    focused: async () => ({ element: { ...focused } }),
     typeText: async (t) => { pc.log.push(['type', t]); }, chord: async (k) => { pc.log.push(['chord', k.join('+')]); },
     media: async () => {}, windowOp: async () => ({ ok: true }), focusWindow: async () => ({ ok: false }),
-    uiaInvoke: async (n) => { pc.log.push(['invoke', n]); return { ok: true }; }, uiaFind: async () => ({ element: null, score: 0 }), click: async () => {},
+    uiaInvoke: async (n) => { pc.log.push(['invoke', n]); return { ok: true }; },
+    uiaFind: async (name, _hwnd, type) => ({
+      element: { name, type: type || 'Button', automationId: '', pid: 1, rect: { x: 10, y: 20, w: 100, h: 40 } },
+      score: 100,
+    }),
+    click: async () => {},
   };
   pc.shell = { openExternal: async (u) => { pc.log.push(['url', u]); }, openPath: async () => '' };
   pc.spawn = (file, args) => { pc.log.push(['spawn', args[args.length - 1]]); if (args.includes('notepad.exe')) pc.pending = { polls: 1, window: { hwnd: 2, title: 'Untitled - Notepad', process: 'Notepad', behindSelf: false } }; };
@@ -218,7 +224,7 @@ test('without any key, an unknown request says how to fix it instead of failing 
   const ai = { canAnswer: () => false, claudeCode: { available: async () => false } };
   const { speech, voice, ui } = rig(t, { ai });
   await voice.begin(); speech.hear('what is a trefoil knot'); await voice.release();
-  assert.ok(ui.ev.some((e) => e[0] === 'notice' && /Gemini key/.test(e[1])));
+  assert.ok(ui.ev.some((e) => e[0] === 'notice' && /Anthropic key/.test(e[1])));
 });
 
 test('Check first can be answered by voice', async (t) => {
@@ -242,6 +248,44 @@ test('Check first, answered "not now" by voice: nothing is clicked', async (t) =
   await voice.begin(); speech.hear('not now'); await voice.release();
   await finished;
   assert.deepEqual(pc.log, []);
+});
+
+test('conditional yes does not approve the original action', async (t) => {
+  const { speech, pc, voice, ui } = rig(t);
+  ui.closeAll = () => ui.ev.push(['closeAll']);
+  await voice.begin(); speech.hear('click send');
+  const finished = voice.release();
+  await until(() => ui.asks.length === 1);
+  await voice.begin(); speech.hear('yes, but change the recipient first'); await voice.release();
+  await finished;
+  assert.deepEqual(pc.log, []);
+  assert.ok(ui.ev.some((e) => e[0] === 'notice' && /revised request/i.test(e[1])));
+});
+
+test('panel shortcuts share the cancellable voice session and reject overlap', async (t) => {
+  const { voice, pc } = rig(t);
+  const out = await voice.runRoutine({ id: 'r1', name: 'Morning', actions: [{ type: 'type_text', text: 'hi' }] });
+  assert.equal(out.ok, true);
+  assert.deepEqual(pc.log, [['type', 'hi']]);
+
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const blocked = rig(t, {
+    executor: {
+      runAll: async (_actions, ctx) => {
+        await gate;
+        return { ok: !(ctx.signal && ctx.signal.aborted), results: [], cancelled: Boolean(ctx.signal && ctx.signal.aborted) };
+      },
+    },
+  });
+  const first = blocked.voice.runRoutine({ id: 'r2', name: 'Slow', actions: [{ type: 'type_text', text: 'a' }] });
+  await until(() => blocked.voice.active);
+  const second = await blocked.voice.runRoutine({ id: 'r3', name: 'Overlap', actions: [{ type: 'type_text', text: 'b' }] });
+  assert.equal(second.ok, false);
+  assert.match(second.error, /already running/i);
+  blocked.voice.cancel();
+  release();
+  assert.equal((await first).ok, false);
 });
 
 test('cancelling stops everything and frees the keys', async (t) => {
