@@ -25,3 +25,13 @@ Read README.md, docs/CONTEXT.md, docs/HANDOFF.md, and docs/AUDIT.md before chang
 ## Current validation state
 
 The audit-fix branch is incomplete and unvalidated. See docs/HANDOFF.md before continuing it. No audit item is closed merely because candidate code exists.
+
+## Cursor Cloud specific instructions
+
+Cloud agents run on Linux. Node.js 22 is already installed. The Windows accessibility helper and speech recognizer are not available.
+
+- `npm ci` installs packages. It does not download the Electron binary. `node node_modules/electron/install.js` does, and it exits immediately when that binary is already present.
+- `CLIPPY_SMOKE_HELPERS=0 npm run smoke` boots the ribbon and settings, checks that a saved key is not shown, and exits. Success prints `SMOKE {"ok":true,...}`. Without that variable, smoke waits for the Windows helper.
+- `npm start` opens the companion and leaves it running from the tray. Computer control and speech still require Windows.
+- `npm test` runs the Node suite. On Linux the Windows interaction tests skip. Do not set `CLIPPY_E2E=1`. The published tree currently has failing Node tests; those failures are application behavior, not a missing toolchain.
+- Electron may log D-Bus session errors. The smoke check still completes.
