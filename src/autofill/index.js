@@ -9,18 +9,27 @@
 //
 // No phase-4 planner (deterministic label mapper) — skipped by design.
 
-const JSON_ARRAY_RE = /\[[\s\S]*?\]/;
-
 /**
  * Extract the first JSON array from a freeform model response.
+ * Strips markdown fences, uses a greedy match so nested objects are preserved.
  * Returns [] if the response contains no valid JSON array.
  * @param {string} text
  * @returns {Array}
  */
 function parsePlan(text) {
-  const m = JSON_ARRAY_RE.exec(String(text || ''));
-  if (!m) return [];
-  try { return JSON.parse(m[0]); } catch (_) { return []; }
+  let s = String(text || '');
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  s = s.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+  // Greedy match: from first '[' to last ']' so nested objects aren't cut off.
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start === -1 || end === -1 || end < start) return [];
+  try {
+    const parsed = JSON.parse(s.slice(start, end + 1));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
 }
 
 /**
@@ -61,6 +70,8 @@ function createAutofill({ profile, voice, ai, ui, executor, log }) {
       .filter((f) => f.label)
       .map((f) => ({ label: f.label, type: f.type || 'text' }));
 
+    _log(`autofill: fieldSchema (${fieldSchema.length}): ${JSON.stringify(fieldSchema)}`);
+
     if (!fieldSchema.length) {
       ui.notice('No labelled fields were found in the form.', { tone: 'info' });
       return { filled: 0 };
@@ -68,20 +79,25 @@ function createAutofill({ profile, voice, ai, ui, executor, log }) {
 
     let plan = [];
     try {
+      // Use a highly directive prompt with an inline example so Haiku returns only JSON.
+      // The ANSWER system prompt is conversational, so we must be very explicit.
+      const eg = JSON.stringify([{ label: 'Email', value: 'user@example.com' }, { label: 'Full name', value: 'Jane Doe' }]);
       const prompt = [
-        'Map each form field to the best matching profile value.',
-        'Return ONLY a JSON array — no prose, no markdown fences.',
-        'Each element: {"label": "<field label>", "value": "<value to fill>"}',
-        'Omit any field you cannot confidently fill. Never invent data.',
+        'TASK: map form fields to profile values. OUTPUT: a JSON array only — no prose, no explanation, no markdown.',
+        `EXAMPLE OUTPUT: ${eg}`,
+        'Rules: omit any field with no confident match; never invent data; preserve exact label strings.',
         '',
-        `Form fields:\n${JSON.stringify(fieldSchema)}`,
+        `FORM FIELDS: ${JSON.stringify(fieldSchema)}`,
+        `PROFILE: ${JSON.stringify(rawProfile)}`,
         '',
-        `Profile:\n${JSON.stringify(rawProfile)}`,
+        'JSON array output:',
       ].join('\n');
 
       ui.notice('Working out which fields to fill…', { tone: 'info' });
       const result = await ai.answer(prompt, { signal: AbortSignal.timeout(15000) });
+      _log(`autofill: raw AI response: ${result.text}`);
       plan = parsePlan(result.text);
+      _log(`autofill: parsed plan (${plan.length} entries): ${JSON.stringify(plan)}`);
       plan = plan.filter((e) => e && typeof e.label === 'string' && typeof e.value === 'string' && e.value.trim());
     } catch (e) {
       _log(`autofill: AI plan failed: ${e.message}`);

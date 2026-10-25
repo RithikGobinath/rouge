@@ -11,12 +11,18 @@ const POLL_MS = 2000;           // how often we check
 const FORM_THRESHOLD = 6;       // score needed to declare a form
 const DEBOUNCE_TICKS = 2;       // same window must score above threshold this many times in a row
 
+// Minimum number of genuine text-input Edit fields required to call something a form.
+// This prevents product pages (Amazon colour pickers, quantity dropdowns) from triggering.
+const MIN_EDIT_FIELDS = 2;
+
 // Patterns for Submit-like button names.
 const SUBMIT_RE = /\b(?:submit|apply|sign[\s-]?up|register|continue|next|create|join|send|get\s+started)\b/i;
 // Window titles that strongly suggest a form.
 const TITLE_FORM_RE = /\b(?:apply|application|sign[\s-]?up|register|contact|form|enroll|enrolment|checkout|subscription)\b/i;
 // Control types that count as editable fields.
 const EDIT_TYPES = new Set(['Edit', 'Document', 'Custom']);
+// Browser UI element names to exclude from scoring (address bar, search bar, tab bar, etc.)
+const BROWSER_UI_RE = /^(?:address\s+and\s+search\s+bar|search\s+(?:amazon|google|bing|yahoo|web|tabs|bookmarks)|address\s+bar|location\s+bar|search\s+box|search\s+bar|new\s+tab|tab\s+strip|navigation\s+bar|url\s+bar)$/i;
 
 /**
  * Resolve a display label for a UIA element from the flat element list.
@@ -56,9 +62,17 @@ function scoreElements(elements, windowTitle) {
 
   if (TITLE_FORM_RE.test(String(windowTitle || ''))) score += 2;
 
+  let editCount = 0;   // track genuine text-input fields separately
+
   for (const el of elements) {
     const type = String(el.type || el.controlType || '');
     const name = String(el.name || '').trim();
+
+    // Skip browser chrome elements (address bar, tab bar, site search box, etc.)
+    if (BROWSER_UI_RE.test(name)) continue;
+    // Skip TabItem — these are browser tabs, never form fields
+    if (type === 'TabItem') continue;
+
     const isEdit = EDIT_TYPES.has(type);
     const isCombo = type === 'ComboBox';
     const isCheck = type === 'CheckBox' || type === 'RadioButton';
@@ -68,16 +82,50 @@ function scoreElements(elements, windowTitle) {
       const label = resolveLabel(el, elements);
       fields.push({ label, type: 'text', automationId: el.automationId || '', ref: el.id });
       score += label ? 2 : 1;
+      editCount++;
     } else if (isCombo || isCheck) {
       const label = resolveLabel(el, elements);
-      fields.push({ label, type: isCombo ? 'select' : 'checkbox', automationId: el.automationId || '', ref: el.id });
-      score += label ? 1 : 0;
+      // Only score combos/checkboxes when we already have ≥1 real Edit field.
+      // Prevents product pages (colour pickers, quantity dropdowns) from reaching threshold alone.
+      if (editCount >= 1) {
+        fields.push({ label, type: isCombo ? 'select' : 'checkbox', automationId: el.automationId || '', ref: el.id });
+        score += label ? 1 : 0;
+      }
     } else if (isButton && SUBMIT_RE.test(name)) {
       score += 3;
     }
   }
 
+  // Hard gate: must have at least MIN_EDIT_FIELDS genuine text inputs.
+  if (editCount < MIN_EDIT_FIELDS) return { score: 0, fields: [] };
+
   return { score, fields };
+}
+
+// Browser process names that need computerSnapshot to activate Chromium's accessibility tree.
+const BROWSER_EXES = new Set(['chrome', 'msedge', 'firefox', 'brave', 'arc', 'opera', 'vivaldi', 'whale', 'chromium']);
+
+/**
+ * Fetch the UIA element list for a window.
+ * For Chromium-based browsers use computerSnapshot (activates their accessibility tree).
+ * For native apps use the lighter uiaList call.
+ *
+ * @param {any} sidecar
+ * @param {number} hwnd
+ * @param {string} [exe]  process exe name from sidecar.fg()
+ * @returns {Promise<object[]>}
+ */
+async function getElements(sidecar, hwnd, exe) {
+  const proc = String(exe || '').toLowerCase().replace(/\.exe$/i, '');
+  if (BROWSER_EXES.has(proc)) {
+    // computerSnapshot wakes up Chromium's accessibility — uiaList alone won't
+    const snap = await sidecar.computerSnapshot(hwnd).catch(() => null);
+    const elements = (snap && snap.elements) || [];
+    if (snap && snap.snapshotId) sidecar.computerRelease(snap.snapshotId).catch(() => {});
+    return elements;
+  }
+  const list = await sidecar.uiaList(hwnd, 150).catch(() => ({ elements: [] }));
+  return (list && list.elements) || [];
 }
 
 /**
@@ -92,50 +140,54 @@ function createDetector({ sidecar, onFormDetected, busy, log }) {
   const _log = log || (() => {});
   let timer = null;
   let lastHwnd = 0;
-  let scoringHwnd = 0;
-  let scoringTicks = 0;
-  let detectedHwnd = 0;         // hwnd we already fired onFormDetected for; clear on window change
+  let detectedHwnd = 0;   // hwnd we already fired onFormDetected for; cleared by reset()
+
+  // Per-window score history: hwnd -> { title, fields, hits, misses }
+  // "hits" = ticks above threshold, "misses" = consecutive ticks below threshold.
+  // We fire after DEBOUNCE_TICKS hits regardless of brief interruptions from
+  // notification popups or other transient windows.
+  const windowScores = new Map();
 
   async function tick() {
     try {
-      if (busy && busy()) return;           // voice session active — skip
+      if (busy && busy()) return;
       const fg = await sidecar.fg();
       const hwnd = fg && fg.hwnd;
       if (!hwnd) return;
 
-      // Window changed: reset debounce and detection state.
-      if (hwnd !== lastHwnd) {
-        lastHwnd = hwnd;
-        scoringHwnd = 0;
-        scoringTicks = 0;
-        detectedHwnd = 0;
-      }
+      lastHwnd = hwnd;
 
-      // Already fired for this window.
+      // Already fired for this window — skip until reset() is called.
       if (hwnd === detectedHwnd) return;
 
-      // Score the element tree.
+      // Score the element tree. Use computerSnapshot for browsers.
       const title = (fg && fg.title) || '';
-      const list = await sidecar.uiaList(hwnd, 120).catch(() => ({ elements: [] }));
-      const elements = (list && list.elements) || [];
+      const exe = fg && (fg.exe || fg.process || '');
+      const elements = await getElements(sidecar, hwnd, exe).catch((e) => { _log(`autofill/detector: element fetch failed: ${e.message}`); return []; });
       const { score, fields } = scoreElements(elements, title);
 
+      _log(`autofill/detector: "${title}" hwnd=${hwnd} elements=${elements.length} score=${score} threshold=${FORM_THRESHOLD} types=${[...new Set(elements.map((e) => e.type))].join(',')}`);
+
+      let entry = windowScores.get(hwnd) || { title, fields: [], hits: 0, misses: 0 };
+
       if (score >= FORM_THRESHOLD) {
-        if (hwnd === scoringHwnd) {
-          scoringTicks += 1;
-        } else {
-          scoringHwnd = hwnd;
-          scoringTicks = 1;
-        }
-        if (scoringTicks >= DEBOUNCE_TICKS) {
-          detectedHwnd = hwnd;
-          _log(`autofill/detector: form detected in "${title}" (hwnd=${hwnd}, score=${score}, fields=${fields.length})`);
-          onFormDetected({ hwnd, windowTitle: title, fields });
-        }
+        entry.hits += 1;
+        entry.misses = 0;
+        // Keep the richest fields snapshot seen so far.
+        if (fields.length > entry.fields.length) { entry.title = title; entry.fields = fields; }
       } else {
-        // Below threshold: reset debounce counter for this window.
-        scoringHwnd = 0;
-        scoringTicks = 0;
+        entry.misses += 1;
+        // Only reset hit count if this window has been below threshold for 3+ consecutive ticks.
+        // This lets brief Chrome DOM flicker or notification interruptions slide.
+        if (entry.misses >= 3) { entry.hits = 0; entry.misses = 0; }
+      }
+      windowScores.set(hwnd, entry);
+
+      if (entry.hits >= DEBOUNCE_TICKS) {
+        detectedHwnd = hwnd;
+        windowScores.delete(hwnd);
+        _log(`autofill/detector: form detected in "${entry.title}" (hwnd=${hwnd}, score=${score}, fields=${entry.fields.length})`);
+        onFormDetected({ hwnd, windowTitle: entry.title, fields: entry.fields });
       }
     } catch (e) {
       _log(`autofill/detector tick: ${e.message}`);
@@ -155,8 +207,7 @@ function createDetector({ sidecar, onFormDetected, busy, log }) {
     /** Reset detection state for the current window (call after a fill is done). */
     reset() {
       detectedHwnd = 0;
-      scoringHwnd = 0;
-      scoringTicks = 0;
+      windowScores.clear();
     },
     get running() { return Boolean(timer); },
   };

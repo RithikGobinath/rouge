@@ -7,7 +7,7 @@
 // controls and keyboard input as a fallback — no mouse movement, no focus
 // stealing, works on background windows.
 
-const MATCH_THRESHOLD = 0.4;    // minimum label similarity to accept a match
+const MATCH_THRESHOLD = 0.2;    // minimum label similarity to accept a match
 
 /**
  * Normalise a label for comparison: lower-case, remove punctuation.
@@ -59,7 +59,14 @@ function matchToRefs(plan, elements) {
       used.add(best.ref);
       results.push({ label: entry.label, value: entry.value, ref: best.ref, elName: best.name, score: bestScore });
     } else {
-      results.push({ label: entry.label, value: entry.value, ref: null, score: bestScore, skipped: true });
+      // Fallback: try matching by automationId (e.g. field named "email" → plan label "Email")
+      const autoIdMatch = elements.find((el) => !used.has(el.ref) && el.automationId && norm(el.automationId).split(/[-_\s]/).some((w) => w.length > 2 && planNorm.includes(w)));
+      if (autoIdMatch) {
+        used.add(autoIdMatch.ref);
+        results.push({ label: entry.label, value: entry.value, ref: autoIdMatch.ref, elName: autoIdMatch.name, score: 0.3 });
+      } else {
+        results.push({ label: entry.label, value: entry.value, ref: null, score: bestScore, skipped: true });
+      }
     }
   }
 
@@ -95,11 +102,15 @@ function createExecutor({ sidecar, log }) {
 
     const elements = (snapshot && snapshot.elements) || [];
     const snapshotId = snapshot && snapshot.snapshotId;
+    _log(`autofill/executor: snapshot has ${elements.length} elements, snapshotId=${snapshotId}`);
+    _log(`autofill/executor: element names: ${elements.map((e) => `"${e.name}"(${e.type})`).join(', ')}`);
     if (!snapshotId) return { results: plan.map((p) => ({ label: p.label, ok: false, error: 'Empty snapshot.' })), filled: 0 };
 
     const matched = matchToRefs(plan, elements);
     const results = [];
     let filled = 0;
+
+    _log(`autofill/executor: match results: ${JSON.stringify(matched.map((m) => ({ label: m.label, matched: !m.skipped, elName: m.elName, score: m.score })))}`);
 
     for (const m of matched) {
       if (m.skipped) {
