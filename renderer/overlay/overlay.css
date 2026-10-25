@@ -8,6 +8,7 @@
   --lift: 0 16px 38px rgba(31, 26, 34, .28), 0 2px 6px rgba(31, 26, 34, .14);
   --mark-accent: #ff6b78; --thread-accent: #ff5a6a;
   --ih: 40px; --ip: 3px;
+  --work-top: 0px; --work-right: 0px; --work-bottom: 0px; --work-left: 0px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; color: var(--ink); font: 13px/1.45 var(--sys); -webkit-font-smoothing: antialiased; user-select: none; }
@@ -16,6 +17,7 @@ body.shots { background: var(--shots-bg, transparent); }
 button { font: inherit; color: inherit; }
 
 #strand-layer { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 7; }
+#clock-highlight { position: fixed; pointer-events: none; z-index: 7; outline: 2px solid var(--red); outline-offset: 2px; border-radius: 4px; }
 
 /* Paper: the one surface every card, bubble and pill is made of. */
 .gl {
@@ -30,10 +32,10 @@ button { font: inherit; color: inherit; }
 /* ---- the ribbon at its corner ---- */
 .mark-dock { position: fixed; z-index: 6; width: 96px; height: 96px; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: 50%; outline: none; }
 .mark-dock canvas { position: absolute; left: 50%; top: 50%; width: 156px; height: 156px; transform: translate(-50%, -50%); pointer-events: none; }
-body[data-corner="br"] .mark-dock { right: 8px; bottom: 8px; }
-body[data-corner="bl"] .mark-dock { left: 8px; bottom: 8px; }
-body[data-corner="tr"] .mark-dock { right: 8px; top: 8px; }
-body[data-corner="tl"] .mark-dock { left: 8px; top: 8px; }
+body[data-corner="br"] .mark-dock { right: calc(var(--work-right) + 8px); bottom: calc(var(--work-bottom) + 8px); }
+body[data-corner="bl"] .mark-dock { left: calc(var(--work-left) + 8px); bottom: calc(var(--work-bottom) + 8px); }
+body[data-corner="tr"] .mark-dock { right: calc(var(--work-right) + 8px); top: calc(var(--work-top) + 8px); }
+body[data-corner="tl"] .mark-dock { left: calc(var(--work-left) + 8px); top: calc(var(--work-top) + 8px); }
 body[data-mode="strip"] .mark-dock { display: none; }
 body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
 
@@ -92,9 +94,17 @@ body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
 /* A file dragged over the ribbon: it lights up to say "let go here". */
 .mark-dock.catching, .strip-slot.catching { box-shadow: 0 0 0 3px var(--red), 0 0 0 9px var(--wash); }
 
+/* Keep the whole opaque message card above the wand, including during its arrival. */
+.meeting-reminder { z-index: 8; width: min(220px, calc(100vw - 24px)); padding: 10px 12px; border-radius: 10px; }
+.meeting-reminder .t { white-space: pre-line; overflow-wrap: anywhere; font-size: 13px; line-height: 1.3; }
+.meeting-reminder .h { margin-top: 2px; }
+.meeting-reminder .a { margin-top: 6px; }
+.meeting-reminder .a button { min-height: 24px; padding: 2px 10px; }
+#meeting-time { display: block; margin: 4px 0 0; font-size: 16px; line-height: 1.2; font-weight: 650; font-variant-numeric: tabular-nums; }
+
 /* ---- strip mode: a slim paper capsule at the top, the ribbon at its left end ---- */
 .strip {
-  position: fixed; z-index: 7; top: 8px; left: calc(50% - var(--ih) / 2 - var(--ip));
+  position: fixed; z-index: 7; top: calc(var(--work-top) + 8px); left: calc(50% - var(--ih) / 2 - var(--ip));
   width: calc(var(--ih) + var(--ip) * 2); min-height: var(--ih); padding: 0 var(--ip);
   display: flex; align-items: flex-start; overflow: hidden;
   background: var(--paper); color: var(--ink); border-radius: calc(var(--ih) / 2);

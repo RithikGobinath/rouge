@@ -6,14 +6,15 @@
 // finishes in a small curl, like the end of a gift ribbon. While it travels it
 // rolls slowly about its own length so the satin catches the light, and a small
 // wave runs down it. "Reach" runs from 0 (all of it in the mark) to 1 (all of it
-// out); the mark unrolls its loop as the ribbon leaves.
+// out); the mark unrolls its loop as the ribbon leaves. Clock reminders end
+// in a flowing underline and clip the clock text out of the ribbon's drawing.
 //
 //   const thread = Strand.mount(canvas, mark, { onArrive, onRewound });
 //   thread.setTarget({ x, y, w, h });   thread.rewind();
 (() => {
   'use strict';
   const RB = window.SatinMaterial;
-  const { TAU, clamp, smooth, mix } = RB;
+  const { clamp, smooth, mix } = RB;
 
   const STEP = 3;               // px between samples along the path
   const SETTLE = 150;           // px over which the ribbon eases from the mark's own width and roll into its own
@@ -52,9 +53,23 @@
    * tail already points and bows toward the middle of the screen, so a thread
    * from a corner sweeps in rather than hugging the edge.
    */
-  function aimAt(open, box, W, H) {
+  function aimAt(open, box, W, H, underline) {
     const a = { x: open.x, y: open.y };
-    const b = stopPoint(box, a);
+    let line = null;
+    if (underline) {
+      const left = clamp(box.x, 6, W - 6); const right = clamp(box.x + box.w, left, W - 6);
+      // Keep the thick stroke outside the clock even when there is no room below it.
+      const below = box.y + box.h + 24 <= H;
+      const y = below ? box.y + box.h + 16 : Math.max(16, box.y - 16);
+      const width = right - left; const bend = width * 0.3;
+      const fromRight = W - right >= bend && (a.x > (left + right) / 2 || left < bend);
+      const start = { x: fromRight ? right : left, y }; const dir = fromRight ? -1 : 1;
+      const wave = Math.min(10, width * 0.14) * (below ? 1 : -1);
+      line = { start, end: { x: fromRight ? left : right, y: y + wave * 0.25 },
+        c1: { x: start.x + dir * bend, y: y - wave * 0.7 },
+        c2: { x: start.x + dir * width * 0.72, y: y + wave * 1.3 } };
+    }
+    const b = line ? line.start : stopPoint(box, a);
     const span = gap(a, b) || 1;
     const ux = (b.x - a.x) / span; const uy = (b.y - a.y) / span;
     const hl = Math.hypot(open.tx, open.ty) || 1;
@@ -67,14 +82,19 @@
     return {
       a, b,
       c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
-      c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
+      // Equal handles on either side of the join keep position and tangent continuous.
+      c2: line ? { x: 2 * b.x - line.c1.x, y: 2 * b.y - line.c1.y }
+        : inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
       mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+      line,
     };
   }
 
   const blendPlans = (p, q, f) => {
     const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
-    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid) };
+    const line = q.line && p.line ? { start: lerp(p.line.start, q.line.start), end: lerp(p.line.end, q.line.end),
+      c1: lerp(p.line.c1, q.line.c1), c2: lerp(p.line.c2, q.line.c2) } : q.line;
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), line };
   };
 
   /**
@@ -94,6 +114,18 @@
       len.push(i ? len[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) : 0);
     }
     const main = len[n];
+    if (plan.line) {
+      const { end, c1, c2 } = plan.line;
+      const count = Math.max(6, Math.ceil((gap(b, c1) + gap(c1, c2) + gap(c2, end)) / STEP));
+      for (let i = 1; i <= count; i += 1) {
+        const t = i / count; const u = 1 - t;
+        const x = u * u * u * b.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x;
+        const y = u * u * u * b.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y;
+        len.push(len[len.length - 1] + Math.hypot(x - xs[xs.length - 1], y - ys[ys.length - 1]));
+        xs.push(x); ys.push(y);
+      }
+      return { n: xs.length, x: Float32Array.from(xs), y: Float32Array.from(ys), len: Float32Array.from(len), main, total: len[len.length - 1] };
+    }
     // the way it is heading as it arrives, and which side the target is on: the curl goes the other way
     let hx = b.x - c2.x; let hy = b.y - c2.y;
     const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
@@ -130,6 +162,7 @@
 
     let phase = 'rest';                              // rest | out | held | back
     let box = null;                                  // what it reaches for
+    let underline = false; let holdMs = HOLD_MS;
     let plan = null; let earlier = null; let planAt = 0; let flat = null;     // the curve; the one it is following from; when it was set; its points
     let tail = null;                                 // the mark's open end when the plan was made
     let reach = 0; let tween = null;                 // how much is out, and what is moving it
@@ -156,7 +189,7 @@
       if (!open || !box) return false;
       const now = performance.now();
       earlier = plan ? currentPlan(now) : null;
-      plan = aimAt(open, box, W, H); planAt = now; flat = null; tail = open;
+      plan = aimAt(open, box, W, H, underline); planAt = now; flat = null; tail = open;
       return true;
     }
     function currentPlan(now) {
@@ -196,7 +229,7 @@
      * ribbon, how wide, how far rolled, and its two edges. The first stretch is
      * pulled onto the mark's live tail so the two always meet.
      */
-    function samples(path, visible, live) {
+    function samples(path, visible, live, now) {
       const half0 = Math.max(2, live.r || 6);
       const phi0 = Math.acos(clamp((live.hw || half0) / half0, 0.12, 1));
       const dx0 = live.x - path.x[0]; const dy0 = live.y - path.y[0];
@@ -211,12 +244,14 @@
       const n = px.length;
       if (n < 2) return null;
       // let out, the ribbon waves a little, most toward its free end; once it has arrived the wave dies away, and it never reaches the curl
-      const amp = phase === 'out' ? WAVE : WAVE * 0.3;
+      const landing = underline ? smooth((reach - 0.65) / 0.35) : 0;
+      const damping = underline && (phase === 'held' || phase === 'back') && heldAt ? 1 - smooth((now - heldAt) / 450) : 1;
+      const amp = underline ? mix(WAVE, WAVE * 0.3, landing) * damping : phase === 'out' ? WAVE : WAVE * 0.3;
       const before = directions(px, py);
       for (let i = 0; i < n; i += 1) {
         if (run[i] <= 0) continue;
-        const settled = phase === 'out' ? 1 : smooth((visible - run[i]) / 70);
-        const clear = smooth((path.main - run[i]) / 90);
+        const settled = underline ? mix(1, smooth((visible - run[i]) / 70), landing) : phase === 'out' ? 1 : smooth((visible - run[i]) / 70);
+        const clear = underline ? mix(1, 0.22, smooth((run[i] - path.main + 90) / 180)) : smooth((path.main - run[i]) / 90);
         const off = amp * Math.sin(run[i] / 140 - clock * 2.6) * smooth(run[i] / SETTLE) * settled * clear;
         px[i] -= before.ty[i] * off; py[i] += before.tx[i] * off;
       }
@@ -226,10 +261,11 @@
       for (let i = 0; i < n; i += 1) {
         const ease = smooth(run[i] / SETTLE);
         const tip = path.total > path.main ? smooth((run[i] - path.main) / (path.total - path.main)) : 0;      // 0 along the curve, 1 at the end of the curl
-        const hw = mix(half0, half0 * FLARE, ease) * mix(1, CURL_WIDTH, tip);
+        const lineBlend = underline ? smooth((run[i] - path.main + 60) / 120) : 0;
+        const hw = mix(mix(half0, half0 * FLARE, ease) * (underline ? 1 : mix(1, CURL_WIDTH, tip)), 4, lineBlend);
         // a gentle roll, never edge-on: the satin keeps showing its face; it settles flat as it curls
         const free = ROLL * Math.sin(run[i] / ROLL_EVERY - clock * 1.1) + 0.2 * Math.sin(run[i] / 83 + clock * 0.7);
-        phi[i] = mix(phi0, free, ease) * mix(1, 0.35, tip);
+        phi[i] = mix(mix(phi0, free, ease) * (underline ? 1 : mix(1, 0.35, tip)), free * 0.45, lineBlend);
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
@@ -243,7 +279,7 @@
       // one soft shadow for the whole outline, so the ribbon lifts off whatever is behind it
       const first = s.run.findIndex((l) => l >= 0);
       ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 11; ctx.shadowOffsetY = 5; ctx.fillStyle = 'rgb(46,3,8)';
+      ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = underline ? 0 : 11; ctx.shadowOffsetY = underline ? 0 : 5; ctx.fillStyle = 'rgb(46,3,8)';
       ctx.beginPath(); ctx.moveTo(s.lx[first], s.ly[first]);
       for (let i = first + 1; i < s.n; i += 1) ctx.lineTo(s.lx[i], s.ly[i]);
       for (let i = s.n - 1; i >= first; i -= 1) ctx.lineTo(s.rx[i], s.ry[i]);
@@ -289,15 +325,23 @@
       const path = plan ? currentPath(now) : null;
       if (!path || reach <= 0.001 || !tail) { next(); return; }
       const visible = reach * path.total;
-      const s = samples(path, visible, mark.getTailFrame() || tail);
+      const s = samples(path, visible, mark.getTailFrame() || tail, now);
       if (!s) { next(); return; }
+      if (underline) {
+        // Even if the incoming curve passes the clock, never paint its digits.
+        ctx.save(); ctx.beginPath();
+        ctx.rect(0, 0, canvas.width, canvas.height);
+        ctx.rect((box.x - 3) * ratio, (box.y - 3) * ratio, (box.w + 6) * ratio, (box.h + 6) * ratio);
+        ctx.clip('evenodd');
+      }
       paintRibbon(s);
+      if (underline) ctx.restore();
       // the tip the answer sits beside is where the curve ends, not the end of the curl
       const at = Math.min(s.n - 1, Math.max(0, s.run.findIndex((l) => l >= Math.min(visible, path.main))));
       tipAt = { x: s.px[at >= 0 ? at : s.n - 1], y: s.py[at >= 0 ? at : s.n - 1] };
-      if (phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
-      drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
-      if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= HOLD_MS)) { halt(); return; }
+      if (!underline && phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
+      if (!underline) drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
+      if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= holdMs)) { halt(); return; }
       next();
     }
 
@@ -310,8 +354,10 @@
 
     return {
       /** Let the thread out to a box (window CSS px). Asked again while it is out, it stays out and its end moves. */
-      setTarget(rect) {
+      setTarget(rect, options = {}) {
         if (!rect) return this.rewind();
+        underline = options.underline === true;
+        holdMs = Number.isFinite(options.holdMs) ? Math.max(0, options.holdMs) : HOLD_MS;
         box = { x: Number(rect.x) || 0, y: Number(rect.y) || 0, w: Math.max(1, Number(rect.w) || 1), h: Math.max(1, Number(rect.h) || 1) };
         inkAt = 0;
         if (!replan()) return false;

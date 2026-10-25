@@ -16,3 +16,5 @@ userdata/
 *.pfx
 *.key
 AGENTS.local.md
+calendar.json
+meeting-reminders.json

@@ -46,7 +46,7 @@
       list.append(h('div', { class: 'row' },
         h('div', {}, h('b', { text: r.name }), h('div', { class: 'steps' }, r.steps.map((t) => h('i', { text: t }))), h('small', { text: `${plural(r.actions.length, 'step')} · ${ago(r.lastRunAt)}` })),
         h('div', { class: 'acts' },
-          h('button', { class: 'run', type: 'button', text: 'Run', onclick: async () => { const x = await api.routine('run', r.id); snack(x.ok ? `Ran ${r.name}` : x.error || 'That did not run.'); } }),
+          h('button', { class: 'run', type: 'button', text: 'Run', disabled: S.development, onclick: async () => { const x = await api.routine('run', r.id); snack(x.ok ? `Ran ${r.name}` : x.error || 'That did not run.'); } }),
           h('button', { type: 'button', text: 'Rename', onclick: () => rename(r) }),
           h('button', { class: 'del', type: 'button', text: 'Delete', onclick: async () => { await api.routine('remove', r.id); snack('Deleted'); } }))));
     }
@@ -159,10 +159,17 @@
     $('#cc-line').textContent = S.claudeCode ? 'Claude Code is available as a fallback without an Anthropic key. A, B and C use your Anthropic key.' : 'Claude Code was not found. Save an Anthropic key to use A, B and C.';
     for (const [id, key] of MODEL_FIELDS) if (document.activeElement !== $(id)) $(id).value = s.models[key] || '';
     $('#voice-line').textContent = S.voice.available ? `Listening on this PC with ${S.voice.recognizer.split('|').pop().trim()}. Recognized words go to the configured AI provider; microphone audio stays on this PC.` : `Windows speech recognition is not available (${S.voice.error || 'not found'}). Typing a command works: click the ribbon.`;
+    if (S.development) $('#voice-line').textContent = 'Voice, hotkeys and computer controls are disabled during Mac development. Click the ribbon to type.';
+    const reminders = S.reminders || {};
+    const reminderStatus = { ready: 'On · 15 minutes before meetings', stopped: 'Starting', missing: 'calendar.json was not found', invalid: 'calendar.json could not be read', stale: 'Calendar snapshot has expired', watch_error: 'Calendar updates cannot be watched', delivery_error: 'Reminder could not be displayed', persistence_error: 'Reminders work, but repeat protection could not be saved' };
+    reminderStatus.test_only = 'Test meetings active; the real calendar snapshot is unavailable';
+    $('#calendar-line').textContent = `Meeting reminders: ${reminderStatus[reminders.status] || 'Unavailable'}. Local calendar only; no model calls.`;
+    $('#calendar-line').title = reminders.file || '';
+    for (const id of ['#tg-speak', '#tg-login', '#reset-keys']) $(id).disabled = Boolean(S.development);
     const hot = $('#hotkeys'); hot.replaceChildren();
     for (const [id, label] of HOTKEYS) {
       const k = S.hotkeys[id]; const rec = recording === id;
-      hot.append(h('button', { class: `hk${rec ? ' rec' : ''}${k.ok ? '' : ' bad'}`, type: 'button', 'data-id': id, title: 'Click, then press the keys you want', onclick: () => startRecording(id) },
+      hot.append(h('button', { class: `hk${rec ? ' rec' : ''}${k.ok ? '' : ' bad'}`, type: 'button', disabled: S.development, 'data-id': id, title: 'Click, then press the keys you want', onclick: () => startRecording(id) },
         rec ? h('b', { text: 'Press the new keys… Esc to cancel' }) : KEYCAP(k.accel), h('span', { text: label }), !rec && !k.ok ? h('em', { text: 'taken by another app: click to change' }) : null));
     }
     $('#about-path').textContent = `Your data lives in ${S.dataDir}`;
@@ -175,6 +182,11 @@
     const ready = S.helper && S.helper.win;
     live.className = `live ${ready && !bad ? 'ok' : 'warn'}`;
     $('#live-text').textContent = !ready ? 'Starting the Windows helper' : bad ? 'A hotkey is taken by another app' : `Ready · hold ${spoken(S.hotkeys.talk.accel)} to talk`;
+    if (S.development) {
+      live.className = 'live ok';
+      live.title = 'Computer controls, voice and screen watching are disabled';
+      $('#live-text').textContent = 'Mac development · controls disabled';
+    }
     $('#ver').textContent = `Version ${S.version}`;
     $('#brand-name').textContent = S.name; $('#about-name').textContent = `${S.name}.`; document.title = S.name;
     // wherever the text names a hotkey, show the one it really is

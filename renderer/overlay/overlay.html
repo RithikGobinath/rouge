@@ -9,6 +9,7 @@
 <body data-mode="corner" data-corner="br">
   <!-- The thread: the ribbon let out across the screen. It covers the window and never takes the mouse. -->
   <canvas id="strand-layer" data-task="" aria-hidden="true"></canvas>
+  <div id="clock-highlight" class="hidden" aria-hidden="true"></div>
 
   <!-- Strip mode: the ribbon folded into a slim bar at the top of the screen. -->
   <div id="strip" class="strip hidden" data-state="idle" aria-live="polite">
@@ -53,6 +54,14 @@
   </div>
 
   <div id="toast" class="gl toast hidden" role="status"></div>
+
+  <section id="meeting-reminder" class="gl meeting-reminder hidden" role="status" aria-live="polite" aria-label="Meeting reminder">
+    <div class="k">Meeting reminder</div>
+    <div id="meeting-title" class="t"></div>
+    <time id="meeting-time"></time>
+    <div id="meeting-countdown" class="h"></div>
+    <div class="a"><button id="meeting-dismiss" type="button">Dismiss</button></div>
+  </section>
 
   <script src="../shared/ribbon.js"></script>
   <script src="../shared/mark3d.js"></script>

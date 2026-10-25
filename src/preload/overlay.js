@@ -8,6 +8,7 @@ const EVENTS = new Set([
   'settings', 'cursor:probe', 'quick:open',
   'ui:state', 'ui:transcript', 'ui:level', 'ui:say', 'ui:notice', 'ui:ask', 'ui:ask:close', 'ui:offer', 'ui:offer:close', 'ui:speak', 'shelf:items',
   'point:target', 'point:bubble', 'point:clear', 'test:backdrop',
+  'calendar:reminder', 'overlay:area',
 ]);
 
 contextBridge.exposeInMainWorld('overlayApi', {
@@ -29,6 +30,8 @@ contextBridge.exposeInMainWorld('overlayApi', {
   },
   shelfDrag: (id) => ipcRenderer.send('overlay:shelf:drag', Number(id) || 0),
   shelfRemove: (id) => ipcRenderer.send('overlay:shelf:remove', Number(id) || 0),
+  dismissReminder: () => ipcRenderer.send('overlay:reminder:dismiss'),
+  clockRect: () => ipcRenderer.invoke('overlay:clock'),
   openSource: (url) => ipcRenderer.invoke('overlay:source:open', typeof url === 'string' ? url.slice(0, 2048) : ''),
   menu: () => ipcRenderer.send('overlay:menu'),
   focusRequest: () => ipcRenderer.invoke('overlay:focus'),
