@@ -6,6 +6,7 @@
 
 const RULES = [
   // ── Name ───────────────────────────────────────────────────────────────
+  [/\bfirst\b\W+(?:and\W+)?last\b/i,           (p) => p.personal.name],       // one box for "Name (First, Last)"
   [/\bfirst\s*(?:name|given)?\b/i,             (p) => p.personal.firstName],
   [/\blast\s*(?:name|surname|family)?\b/i,     (p) => p.personal.lastName],
   [/\b(?:second|maternal)\s*last\s*name\b/i,   (p) => p.personal.lastName],

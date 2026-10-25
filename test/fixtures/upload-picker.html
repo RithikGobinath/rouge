@@ -11,7 +11,7 @@
     //   "File too large. Maximum file size: 2 MB."
     // Open this page in a supported browser while Rouge runs to validate that
     // the sidecar-based upload watcher detects the rejection text via uiaList().
-    document.querySelector('#result').textContent = file && file.size > 2000000
-      ? 'File too large. Maximum file size: 2 MB.' : '';
+    document.querySelector('#result').textContent = file && file.size > 150000
+      ? 'File too large. Maximum file size: 150 KB.' : '';
   });
 </script>

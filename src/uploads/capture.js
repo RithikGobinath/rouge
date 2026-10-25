@@ -4,7 +4,7 @@
 // createFormWatcher in src/calendar/watch.js. No separate native helper process.
 
 // Matches visible error text that confirms a file-size rejection.
-const SIZE_ERROR_RE = /(?:file\s+too\s+large|exceeds?\s+(?:the\s+)?(?:maximum\s+)?(?:file\s+)?size|must\s+be\s+(?:less\s+than|under)\b|file\s+size\s+limit|maximum\s+(?:file\s+)?size|too\s+big\s+to\s+upload)/i;
+const SIZE_ERROR_RE = /(?:file\s+too\s+large|exceeds?\s+(?:the\s+)?(?:maximum\s+)?(?:file\s+)?size|must\s+be\s+(?:less\s+than|under)\b|file\s+size\s+limit|maximum\s+(?:file\s+)?size\b\W{0,3}\d|too\s+big\s+to\s+upload)/i;
 
 // Parses an explicit size limit from an error string.
 const LIMIT_RE = /(\d+(?:[.,]\d+)?)\s*(B|KB|KiB|MB|MiB|GB|GiB)\b/i;

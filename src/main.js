@@ -30,6 +30,8 @@ const { createExecutor } = require('./actions/executor');
 const { createComputerController } = require('./computer/controller');
 const { createWinSidecar } = require('./win/sidecar');
 const { createUploadCapture } = require('./uploads/capture');
+const { createUploadOffer } = require('./uploads/offer');
+const { compressPdf, formatBytes } = require('./pdf/compress');
 const { createSpeech } = require('./voice/speech');
 const { createVoice } = require('./voice/session');
 const { createJev } = require('./voice/jev');
@@ -99,7 +101,15 @@ function build() {
   const folders = createFolders({ dir: path.join(dir, 'folders'), log });
   const apps = createApps({ log });
   const sidecar = createWinSidecar({ log, ignorePid: process.pid });
-  const uploads = createUploadCapture({ sidecar, log });
+  const uploads = createUploadCapture({
+    sidecar,
+    log,
+    // The browser extension sees the page itself, so the window reader steps aside while it is in use.
+    onRejection: (ev) => {
+      if (Date.now() - bridge.lastSeen < 10 * 60 * 1000) return;
+      handleUploadRejection(ev).catch((e) => log(`upload rejection: ${e.message}`));
+    },
+  });
   const speech = createSpeech({ log });
   let computer = null;
   const ai = createAI({ store, folders, log, getComputer: () => computer });
@@ -131,6 +141,23 @@ function build() {
     // End-to-end tests only: hear a WAV instead of the microphone.
     listenFile: () => (process.env.CLIPPY_E2E === '1' ? process.env.CLIPPY_E2E_WAV : undefined) };
   voice = createVoice(voiceDeps);
+
+  const uploadOffer = createUploadOffer({
+    voice: () => voice, ui, compress: (opts) => compressPdf({ ...opts, codec: require('./pdf/codec') }), formatBytes, fs, log,
+    hold: (file) => (services && services.shelf ? services.shelf.hold(file) : Promise.resolve(false)),
+    downloads: () => app.getPath('downloads'),
+    pickPdf: async () => {
+      const { dialog } = require('electron');
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose the PDF that was rejected',
+        filters: [{ name: 'PDF files', extensions: ['pdf'] }],
+        properties: ['openFile'],
+      });
+      return picked.canceled || !picked.filePaths.length ? null : picked.filePaths[0];
+    },
+  });
+  const handleUploadRejection = (ev) => uploadOffer.handle(ev);
+
   const pointAsk = createPointAsk({ sidecar, ai, overlay, ui, capture, log });
   voiceDeps.pointAsk = pointAsk;
   let calendarClicks = 0;
@@ -164,8 +191,12 @@ function build() {
 
   const bridge = createBridge({
     log,
+    info: { version: app.getVersion(), root: ROOT, uploads: true },
     onFormDetected: (formInfo) => {
       autofill.offer(formInfo).catch((e) => log(`autofill.offer: ${e.message}`));
+    },
+    onUploadRejection: (info) => {
+      handleUploadRejection(info).catch((e) => log(`upload rejection: ${e.message}`));
     },
   });
   const autofill = createAutofill({
@@ -188,6 +219,8 @@ function iconImage() {
 }
 
 async function boot() {
+  // Where this copy runs from: several checkouts share one data folder, so the log has to say which one is up.
+  log(`rouge ${app.getVersion()} started from ${ROOT}`);
   services = build();
   await services.store.init();
   // End-to-end tests only: start with these keys set.
@@ -273,6 +306,8 @@ async function boot() {
     iconFor: (file) => app.getFileIcon(file, { size: 'large' }),
     drag: (sender, file, icon) => sender.startDrag({ file, icon: icon && !icon.isEmpty() ? icon : (iconImage() || nativeImage.createEmpty()) }),
   });
+
+  services.shelf = shelf;
 
   registerIpc({
     store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, shelf, quit: () => app.quit(),

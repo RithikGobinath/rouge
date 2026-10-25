@@ -8,6 +8,8 @@ Rouge can hold a file for you while you switch tabs or apps, then hand it back w
 - Switch tabs or apps. The chips stay on top.
 - Drag a chip onto the page or app that needs the file. The chip goes as the drag starts. Windows does not tell Rouge whether a drop worked, so if one fails, drag the file in again. The × lets go of a chip without dragging it.
 
+Rouge also puts a file on the shelf itself in one case: the smaller copy it makes of a PDF a site refused for size (see `AUTOMATIC_PDF_CAPTURE.md`). Drag that chip onto the site's upload area like any other held file.
+
 ## What Rouge does and does not do
 
 - Nothing is watched: no folders, no downloads. It only acts on a file you drop on the ribbon.
