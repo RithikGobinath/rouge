@@ -55,6 +55,17 @@ function createAI({ store, folders, claudeCode, fetchImpl, getComputer, log = ()
     },
 
     /**
+     * One narrow web lookup under the caller's own instructions. Claude only, because the
+     * fallbacks cannot search, and no folder excerpts or chat history go with the question.
+     * @returns {Promise<{text:string, sources:object[], provider:string, webUsed:boolean}>}
+     */
+    async research(question, { system, signal } = {}) {
+      if (!keys().anthropic) throw new AiError('Looking this up needs an Anthropic key under Your keys.', { code: 'no_key' });
+      const r = await route('answer', { system, user: question, goal: question, signal });
+      return { text: r.text, sources: (r.sources || []).slice(0, 12), provider: r.provider, role: r.role, model: r.model, calls: r.calls, webUsed: Boolean(r.webUsed) };
+    },
+
+    /**
      * Turn a request the grammar did not know into actions from the fixed set.
      * @returns {Promise<{say:string, actions:object[], dropped:number, provider:string}>}
      */

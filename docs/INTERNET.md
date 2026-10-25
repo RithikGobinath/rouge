@@ -13,6 +13,8 @@ Actual provider sources appear as clickable links. Only public HTTP(S) links can
 open, and only after the user clicks. Internet access can be disabled in
 Preferences. This does not enable background screen watching or change D.
 
+Price comparison on product pages ([SHOPPING.md](SHOPPING.md)) uses the same tools, and only after the user clicks its offer.
+
 Web search currently costs $10 per 1,000 searches plus model tokens. Web fetch
 has no additional tool fee; fetched content uses input tokens. Provider account
 access and event credits are not assumed.
