@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "personal": {
+    "name": "Rithik Gobinath",
+    "email": "rithikgobinath@outlook.com",
+    "phone": "(608) 867-0080",
+    "location": "Madison, WI",
+    "linkedin": "",
+    "github": "",
+    "website": ""
+  },
+  "education": [
+    {
+      "school": "University of Wisconsin–Madison",
+      "degree": "Bachelor of Science",
+      "field": "Computer Science and Computer Engineering",
+      "startYear": "2024",
+      "endYear": "2028",
+      "gpa": "3.5"
+    }
+  ],
+  "experience": [
+    {
+      "company": "NSF HAMMER Engineering Research Center, Osteo Lab, UW–Madison",
+      "title": "Lead Undergraduate Researcher — Robotic Skeletal Fixation Shaper (FDA De Novo Track)",
+      "startDate": "Oct 2025",
+      "endDate": "Present",
+      "location": "Madison, WI",
+      "description": "Built AutoAnatomy (Apache 2.0): nnU-Net CT segmentation pipeline that saved hundreds of manual hours; received lab award. Primary on-ground researcher for RSFS v3.0, executing assembly, testing, and V&V under PhD direction. Managing KLS Martin, KUKA and other vendor relationships for Ti-6Al-4V CMF plate specs and robotic procurement. Contributed to Wisconsin SEED grant proposal under NSF HAMMER ERC ($26M) funding. Preparing RSFS v3.0 cadaveric validation protocol targeting FDA De Novo submission."
+    },
+    {
+      "company": "NASA Human Research Program, NeuroErgo Lab, UW–Madison",
+      "title": "Undergraduate Research Scholar — Manuscript in Preparation for Publication",
+      "startDate": "Sept 2025",
+      "endDate": "May 2026",
+      "location": "Madison, WI",
+      "description": "First-authored spaceflight fatigue study (N=48) addressing NASA HRR SM-104, BMed-108 & Sleep-101. Trained LOSO 1D-CNN on raw Tobii wearable streams for 3-class fatigue detection across N=48. Outperformed PERCLOS benchmark across 3-class fatigue states via LOSO cross-validation. Built multimodal PPG + pupillometry fusion model for offline spaceflight fatigue inference. Preparing release of de-identified N=48 multimodal dataset (3 stressor conditions) to NASA Open Data Portal."
+    }
+  ],
+  "skills": [
+    "Python",
+    "C",
+    "C++",
+    "SQL",
+    "Bash",
+    "PowerShell",
+    "JavaScript",
+    "TypeScript",
+    "PyTorch",
+    "scikit-learn",
+    "TensorFlow",
+    "Hugging Face",
+    "XGBoost",
+    "LLM APIs (Claude, OpenAI)",
+    "AI Evaluation & Benchmarking",
+    "pandas",
+    "NumPy",
+    "SciPy",
+    "Matplotlib",
+    "Seaborn",
+    "PostgreSQL",
+    "SQLite",
+    "ETL Pipelines",
+    "3D Slicer",
+    "DICOM",
+    "nnU-Net",
+    "Virtual Surgical Planning (VSP)",
+    "CT Segmentation",
+    "Linux",
+    "Git",
+    "GitHub",
+    "Docker",
+    "MLflow",
+    "Google Cloud Platform",
+    "Airflow"
+  ],
+  "projects": [
+    {
+      "name": "AutoAnatomy",
+      "description": "Open-source CLI tool wrapping nnU-Net for 7-class craniofacial CT segmentation at 0.5mm isotropic resolution. Implemented DICOM-to-STL export pipeline; reduced manual 3D Slicer segmentation from hours to minutes per scan. Adopted by Oestro Engineering Lab for RSFS v3.0 surgical planning pipeline; received lab award.",
+      "url": "",
+      "technologies": ["Python", "nnU-Net", "3D Slicer", "DICOM"]
+    },
+    {
+      "name": "EvalFrame",
+      "description": "Modular LLM evaluation harness supporting Claude and GPT model families across 5 task types. Logged prompt versions and scoring metrics in MLflow for reproducible benchmarking. Deployed on Google Cloud Run via Docker; processed 500+ eval cases per run with automated scoring.",
+      "url": "",
+      "technologies": ["Python", "Claude API", "OpenAI API", "MLflow", "Docker", "Cloud Run"]
+    },
+    {
+      "name": "CourseIQ",
+      "description": "Trained grade outcome classifier on 5,600+ UW–Madison courses using Madgrades GPA and RMP data. Classified multiclass grades via XGBoost in MLflow, achieving 78% accuracy against a 61% baseline. Containerized with Docker; versioned datasets in GCS with automated scheduled refresh.",
+      "url": "",
+      "technologies": ["Python", "XGBoost", "MLflow", "Docker", "BigQuery", "Google Cloud Storage"]
+    },
+    {
+      "name": "TapMap",
+      "description": "Web app mapping Madison addresses to serving wells with live GeoJSON service zone overlays. Developed custom WaterScore algorithm to quantify water quality risk by service zone and well source. Integrated Google Places, Flask APIs, and GeoJSON layers for precise location-specific well attribution.",
+      "url": "",
+      "technologies": ["React", "TypeScript", "Vite", "Leaflet", "Flask", "GeoJSON", "Google Cloud"]
+    }
+  ],
+  "certifications": [],
+  "languages": [],
+  "publications": [
+    {
+      "title": "4D Immuno-Mechanobiomaterials: Dynamic Material Cues that Program Host Response to Prevent Fibrosis and Enable Regeneration",
+      "journal": "VIEW (Wiley)",
+      "date": "Aug 2026",
+      "doi": "10.1002/viw2.70188",
+      "role": "Corresponding author"
+    },
+    {
+      "title": "3D Bioprinting in Regenerative Medicine: From Construct Design to Functional Tissue Regeneration",
+      "journal": "Advanced Healthcare Materials (Wiley)",
+      "date": "2026",
+      "doi": "",
+      "role": "Corresponding author (under review)"
+    },
+    {
+      "title": "Automation of IoT Robotics",
+      "journal": "Book Chapter, Wiley",
+      "date": "Mar 2024",
+      "doi": "10.1002/9781394303601.ch13",
+      "role": "First author"
+    },
+    {
+      "title": "Private AI: An Overview",
+      "journal": "Book Chapter, IGI Global",
+      "date": "May 2025",
+      "doi": "10.4018/979-8-3693-7550-1.ch015",
+      "role": "Author"
+    }
+  ],
+  "scholarMetrics": {
+    "citations": 33,
+    "hIndex": 3,
+    "i10Index": 2
+  },
+  "notes": []
+}
