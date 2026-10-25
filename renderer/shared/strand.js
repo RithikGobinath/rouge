@@ -6,8 +6,8 @@
 // finishes in a small curl, like the end of a gift ribbon. While it travels it
 // rolls slowly about its own length so the satin catches the light, and a small
 // wave runs down it. "Reach" runs from 0 (all of it in the mark) to 1 (all of it
-// out); the mark unrolls its loop as the ribbon leaves. Clock reminders use
-// a separate thin underline so this ribbon never crosses the time.
+// out); the mark unrolls its loop as the ribbon leaves. Clock reminders end
+// in a straight underline and clip the clock text out of the ribbon's drawing.
 //
 //   const thread = Strand.mount(canvas, mark, { onArrive, onRewound });
 //   thread.setTarget({ x, y, w, h });   thread.rewind();
@@ -53,9 +53,17 @@
    * tail already points and bows toward the middle of the screen, so a thread
    * from a corner sweeps in rather than hugging the edge.
    */
-  function aimAt(open, box, W, H) {
+  function aimAt(open, box, W, H, underline) {
     const a = { x: open.x, y: open.y };
-    const b = stopPoint(box, a);
+    let line = null;
+    if (underline) {
+      const left = clamp(box.x, 6, W - 6); const right = clamp(box.x + box.w, left, W - 6);
+      // Keep the thick stroke outside the clock even when there is no room below it.
+      const y = box.y + box.h + 18 <= H ? box.y + box.h + 12 : Math.max(6, box.y - 12);
+      const fromRight = a.x > (left + right) / 2;
+      line = { start: { x: fromRight ? right : left, y }, end: { x: fromRight ? left : right, y } };
+    }
+    const b = line ? line.start : stopPoint(box, a);
     const span = gap(a, b) || 1;
     const ux = (b.x - a.x) / span; const uy = (b.y - a.y) / span;
     const hl = Math.hypot(open.tx, open.ty) || 1;
@@ -70,12 +78,13 @@
       c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
       c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
       mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+      line,
     };
   }
 
   const blendPlans = (p, q, f) => {
     const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
-    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid) };
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), line: q.line };
   };
 
   /**
@@ -95,6 +104,16 @@
       len.push(i ? len[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) : 0);
     }
     const main = len[n];
+    if (plan.line) {
+      const end = plan.line.end;
+      const count = Math.max(1, Math.ceil(gap(b, end) / STEP));
+      for (let i = 1; i <= count; i += 1) {
+        const t = i / count; const x = mix(b.x, end.x, t); const y = mix(b.y, end.y, t);
+        len.push(len[len.length - 1] + Math.hypot(x - xs[xs.length - 1], y - ys[ys.length - 1]));
+        xs.push(x); ys.push(y);
+      }
+      return { n: xs.length, x: Float32Array.from(xs), y: Float32Array.from(ys), len: Float32Array.from(len), main, total: len[len.length - 1] };
+    }
     // the way it is heading as it arrives, and which side the target is on: the curl goes the other way
     let hx = b.x - c2.x; let hy = b.y - c2.y;
     const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
@@ -158,7 +177,7 @@
       if (!open || !box) return false;
       const now = performance.now();
       earlier = plan ? currentPlan(now) : null;
-      plan = aimAt(open, box, W, H); planAt = now; flat = null; tail = open;
+      plan = aimAt(open, box, W, H, underline); planAt = now; flat = null; tail = open;
       return true;
     }
     function currentPlan(now) {
@@ -172,7 +191,7 @@
     }
 
     const moveReach = (to, ms, curve, now) => { tween = { from: reach, to, ms: Math.max(1, ms), at: now, curve }; };
-    const lengthNow = () => underline && box ? box.w : (plan ? (flat || (flat = flatten(plan))).total : 0);
+    const lengthNow = () => (plan ? (flat || (flat = flatten(plan))).total : 0);
 
     /** Four corner marks round the spot, breathing a little, over a faint wash of colour. */
     function drawSpot(now, strength) {
@@ -228,10 +247,11 @@
       for (let i = 0; i < n; i += 1) {
         const ease = smooth(run[i] / SETTLE);
         const tip = path.total > path.main ? smooth((run[i] - path.main) / (path.total - path.main)) : 0;      // 0 along the curve, 1 at the end of the curl
-        const hw = mix(half0, half0 * FLARE, ease) * mix(1, CURL_WIDTH, tip);
+        const onLine = underline && run[i] >= path.main;
+        const hw = onLine ? 4 : mix(half0, half0 * FLARE, ease) * mix(1, CURL_WIDTH, tip);
         // a gentle roll, never edge-on: the satin keeps showing its face; it settles flat as it curls
         const free = ROLL * Math.sin(run[i] / ROLL_EVERY - clock * 1.1) + 0.2 * Math.sin(run[i] / 83 + clock * 0.7);
-        phi[i] = mix(phi0, free, ease) * mix(1, 0.35, tip);
+        phi[i] = onLine ? 0 : mix(phi0, free, ease) * mix(1, 0.35, tip);
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
@@ -245,7 +265,7 @@
       // one soft shadow for the whole outline, so the ribbon lifts off whatever is behind it
       const first = s.run.findIndex((l) => l >= 0);
       ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 11; ctx.shadowOffsetY = 5; ctx.fillStyle = 'rgb(46,3,8)';
+      ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = underline ? 0 : 11; ctx.shadowOffsetY = underline ? 0 : 5; ctx.fillStyle = 'rgb(46,3,8)';
       ctx.beginPath(); ctx.moveTo(s.lx[first], s.ly[first]);
       for (let i = first + 1; i < s.n; i += 1) ctx.lineTo(s.lx[i], s.ly[i]);
       for (let i = s.n - 1; i >= first; i -= 1) ctx.lineTo(s.rx[i], s.ry[i]);
@@ -284,34 +304,29 @@
         reach = tween.from + (tween.to - tween.from) * tween.curve(k);
         done = k >= 1;
       }
-      if (mark.setUnravel) mark.setUnravel(underline ? 0 : clamp(reach * 1.6, 0, 1));
+      if (mark.setUnravel) mark.setUnravel(clamp(reach * 1.6, 0, 1));
       if (done && phase === 'out') { phase = 'held'; heldAt = now; tween = null; onArrive(); }
       else if (done && phase === 'back') { clearAll(); halt(); onRewound(); return; }
-
-      if (underline && box) {
-        const left = clamp(box.x, 1, W - 1); const right = clamp(box.x + box.w, left, W - 1);
-        // Below the clock, or in its bottom padding when it touches the screen edge.
-        const y = clamp(box.y + box.h + 3, 1, H - 2);
-        ctx.save(); ctx.scale(ratio, ratio);
-        ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; ctx.fillStyle = RB.rgb(ink);
-        ctx.fillRect(left, y, (right - left) * reach, 2);
-        ctx.restore();
-        tipAt = { x: left + (right - left) * reach, y: y + 1 };
-        if (phase === 'held' && (calm || now - heldAt >= holdMs)) { halt(); return; }
-        next(); return;
-      }
 
       const path = plan ? currentPath(now) : null;
       if (!path || reach <= 0.001 || !tail) { next(); return; }
       const visible = reach * path.total;
       const s = samples(path, visible, mark.getTailFrame() || tail);
       if (!s) { next(); return; }
+      if (underline) {
+        // Even if the incoming curve passes the clock, never paint its digits.
+        ctx.save(); ctx.beginPath();
+        ctx.rect(0, 0, canvas.width, canvas.height);
+        ctx.rect((box.x - 3) * ratio, (box.y - 3) * ratio, (box.w + 6) * ratio, (box.h + 6) * ratio);
+        ctx.clip('evenodd');
+      }
       paintRibbon(s);
+      if (underline) ctx.restore();
       // the tip the answer sits beside is where the curve ends, not the end of the curl
       const at = Math.min(s.n - 1, Math.max(0, s.run.findIndex((l) => l >= Math.min(visible, path.main))));
       tipAt = { x: s.px[at >= 0 ? at : s.n - 1], y: s.py[at >= 0 ? at : s.n - 1] };
-      if (phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
-      drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
+      if (!underline && phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
+      if (!underline) drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
       if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= holdMs)) { halt(); return; }
       next();
     }
