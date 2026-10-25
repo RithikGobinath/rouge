@@ -326,7 +326,15 @@
     }
   });
   bridge.on('ui:notice', (m) => toast(m.text, m.tone));
-  bridge.on('ui:ask', (m) => { askId = m.id; $('#ask-title').textContent = m.card.title; $('#ask-hint').textContent = m.card.hint; els.ask.classList.remove('hidden'); layout(); });
+  bridge.on('ui:ask', (m) => {
+    askId = m.id;
+    const kicker = m.card.kicker || 'Check first';
+    els.ask.setAttribute('aria-label', kicker);
+    $('#ask-kicker').textContent = kicker;
+    $('#ask-title').textContent = m.card.title; $('#ask-hint').textContent = m.card.hint;
+    $('#ask-yes').textContent = m.card.yes || 'Go ahead'; $('#ask-no').textContent = m.card.no || 'Not now';
+    els.ask.classList.remove('hidden'); layout();
+  });
   bridge.on('ui:ask:close', (m) => { if (m.id === askId) { els.ask.classList.add('hidden'); layout(); } });
   bridge.on('ui:offer', (m) => { offerId = m.id; els.offerSteps.textContent = (m.labels || []).join('  ›  '); els.offer.classList.remove('hidden'); layout(); });
   bridge.on('ui:offer:close', (m) => { if (m.id === offerId) { els.offer.classList.add('hidden'); layout(); } });

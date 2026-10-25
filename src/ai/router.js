@@ -34,7 +34,7 @@ function abortIfNeeded(signal) {
 
 /** One shared key, with model IDs read from the normal validated settings. */
 function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = () => {} }) {
-  return async function route(task, { system, user, goal = user, imageDataUrl, extraImages = [], signal, onChunk }) {
+  return async function route(task, { system, user, goal = user, imageDataUrl, extraImages = [], signal, onChunk, webSearches }) {
     const apiKey = store.getKey('anthropic');
     if (!apiKey) throw new AiError('Add an Anthropic key under Your keys to use Claude.', { provider: 'anthropic', code: 'no_key' });
     if (!['answer', 'plan', 'explain'].includes(task)) throw new AiError('That request type is not supported.', { code: 'task' });
@@ -58,7 +58,7 @@ function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = 
       const useStream = Boolean(chunkCb) && !format && !continuation && role === 'A';
       try {
         const options = { apiKey, model, effort: config.effort, maxTokens: config.maxTokens, timeoutMs: config.timeoutMs,
-          system: taskSystem, text: user, imageDataUrl, extraImages, format, web: !continuation && role !== 'A' && webAccess, details: true, signal, fetchImpl };
+          system: taskSystem, text: user, imageDataUrl, extraImages, format, web: !continuation && role !== 'A' && webAccess, webSearches, details: true, signal, fetchImpl };
         const result = continuation
           ? await anthropicMessages({ ...options, ...continuation, timeoutMs: Math.min(config.timeoutMs, continuation.timeoutMs) })
           : useStream

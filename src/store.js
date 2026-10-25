@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 
-const KEY_NAMES = ['typesafe', 'gemini', 'anthropic'];
+const KEY_NAMES = ['typesafe', 'gemini', 'anthropic', 'serper'];
 const CORNERS = ['tl', 'tr', 'bl', 'br'];
 const ACCEL = /^(?:(?:Control|Ctrl|Alt|Shift|Super|Meta|Command|CommandOrControl)\+)+(?:[A-Z0-9]|F\d{1,2}|Space|Enter|Return|Tab|Escape|Esc|Up|Down|Left|Right|Home|End|PageUp|PageDown|Insert|Delete|Backspace)$/;
 const MODEL = /^[A-Za-z0-9._:/-]{1,80}$/;
@@ -25,6 +25,7 @@ const DEFAULTS = Object.freeze({
   startWithWindows: false,
   useClaudeCode: false,
   webAccess: true,
+  shoppingOffers: true,
   auto: true,
   hotkeys: { talk: 'Control+Alt+V', point: 'Control+Alt+L', hide: 'Control+Alt+H', panic: 'Control+Alt+X' },
   models: {
@@ -43,6 +44,7 @@ const VALID = {
   startWithWindows: (v) => typeof v === 'boolean',
   useClaudeCode: (v) => typeof v === 'boolean',
   webAccess: (v) => typeof v === 'boolean',
+  shoppingOffers: (v) => typeof v === 'boolean',
   auto: (v) => typeof v === 'boolean',
   hotkeys: (v) => v && typeof v === 'object' && Object.entries(v).every(([k, a]) => ['talk', 'point', 'hide', 'panic'].includes(k) && typeof a === 'string' && ACCEL.test(a)),
   models: (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([k, m]) => MODEL_NAMES.includes(k) && typeof m === 'string' && MODEL.test(m) && (!CLAUDE_ROLES.has(k) || m.startsWith('claude-'))),

@@ -38,3 +38,29 @@ test('typed wand requests and known rectangles never touch AI, capture or comput
   assert.equal(sent.filter(([name]) => name === 'point:target').at(-1)[1].label, 'Known button');
   pointAsk.close();
 });
+
+test('known controls keep main window tracking without capture or model calls', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const forbidden = new Proxy({}, { get() { throw new Error('No model or capture for a known control'); } });
+  const sent = []; const released = []; const listeners = new Map(); let reads = 0;
+  const moved = { x: 60, y: 70, w: 20, h: 30 };
+  const pointAsk = createPointAsk({ ai: forbidden, capture: forbidden, ui: { state() {} },
+    overlay: { show() {}, send: (name, data) => sent.push([name, data]), physToOverlay: (r) => r },
+    sidecar: {
+      computerSnapshot: async (hwnd) => { assert.equal(hwnd, 41); reads += 1; return { snapshot: {
+        snapshotId: 'fresh', elements: [{ name: '', rect: { x: 0, y: 0, w: 1, h: 1 } }, { name: 'Known button', rect: moved }],
+      } }; },
+      computerRelease: async (id) => released.push(id),
+      on: (event, fn) => { listeners.set(event, fn); return () => listeners.delete(event); },
+    },
+  });
+  t.after(() => pointAsk.close());
+  assert.equal(await pointAsk.pointAt({ x: 40, y: 50, w: 20, h: 30 }, { name: 'Known button' }, { hwnd: 41 }, 'old', 41), true);
+  t.mock.timers.tick(0); await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent.filter(([name]) => name === 'point:target').at(-1)[1].rect, moved);
+  assert.deepEqual(released, ['fresh']);
+  listeners.get('fg')({ hwnd: 42 });
+  assert.equal(pointAsk.active, false); assert.equal(listeners.size, 0);
+  t.mock.timers.tick(150); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 1, 'tracking stops when the target window loses focus');
+});
