@@ -10,18 +10,19 @@
 //
 // All UI is in the Rouge overlay. The extension has no UI of its own.
 
-const { planFromProfile } = require('./planner');
+const { planFromProfile, planUnmatchedWithAI } = require('./planner');
 
 /**
  * @param {{
  *   profile:  { profileForAutofill: () => object },
  *   voice:    { ask: (card:object) => Promise<boolean> },
+ *   ai?:      { answer: (q:string, opts?:object) => Promise<{text:string}> },
  *   ui:       { review: (payload:object) => Promise<Array|null>, notice: (t:string, o:object) => void },
  *   bridge:   { sendFill: (id:string, plan:Array) => void, cancel: (id:string) => void },
  *   log?:     Function,
  * }} deps
  */
-function createAutofill({ profile, voice, ui, bridge, log }) {
+function createAutofill({ profile, voice, ai, ui, bridge, log }) {
   const _log = log || (() => {});
 
   /**
@@ -64,9 +65,19 @@ function createAutofill({ profile, voice, ui, bridge, log }) {
       bridge.cancel(id); return;
     }
 
-    // 4. Build fill plan deterministically — no AI call, no token limits, instant.
-    const plan = planFromProfile(fieldSchema, rawProfile);
-    _log(`autofill: deterministic plan (${plan.length} entries): ${JSON.stringify(plan)}`);
+    // 4. Build fill plan — deterministic first, AI fallback for unrecognised labels.
+    const deterministicPlan = planFromProfile(fieldSchema, rawProfile);
+    const matchedLabels = new Set(deterministicPlan.map((e) => e.label));
+    const unmatched = fieldSchema.filter((f) => !matchedLabels.has(f.label));
+
+    let aiFallbackPlan = [];
+    if (unmatched.length && ai) {
+      _log(`autofill: ${unmatched.length} unmatched field(s), asking AI for key mapping`);
+      aiFallbackPlan = await planUnmatchedWithAI(unmatched, ai.answer.bind(ai), rawProfile);
+    }
+
+    const plan = [...deterministicPlan, ...aiFallbackPlan];
+    _log(`autofill: plan (${plan.length} entries, ${deterministicPlan.length} deterministic + ${aiFallbackPlan.length} AI): ${JSON.stringify(plan)}`);
 
     if (!plan.length) {
       ui.notice('No fields could be matched to your profile.', { tone: 'info' });

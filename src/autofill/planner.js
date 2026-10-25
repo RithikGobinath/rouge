@@ -67,4 +67,93 @@ function planFromProfile(fields, profile) {
   return plan;
 }
 
-module.exports = { planFromProfile };
+// ── Available profile keys exposed to the AI fallback ──────────────────────
+// These are the dot-paths Haiku can refer to. Values are resolved locally.
+const PROFILE_KEY_DOCS = `
+personal.firstName        - first / given name
+personal.lastName         - last / family / surname
+personal.name             - full name (first + last)
+personal.email            - email address
+personal.phone            - phone number
+personal.location         - city, state or country
+personal.linkedin         - LinkedIn profile URL
+personal.github           - GitHub profile URL
+personal.website          - personal website / portfolio URL
+education.0.school        - name of university or school
+education.0.degree        - degree type (e.g. Bachelor of Science)
+education.0.field         - field of study / major
+education.0.gpa           - GPA
+education.0.endYear       - graduation year
+experience.0.company      - most recent employer
+experience.0.title        - most recent job title
+experience.0.startDate    - start date of most recent job
+`.trim();
+
+/**
+ * Resolve a dot-path against the profile object.
+ * e.g. "education.0.school" → profile.education[0].school
+ * @param {object} profile
+ * @param {string} key
+ * @returns {string|undefined}
+ */
+function resolvePath(profile, key) {
+  const parts = key.split('.');
+  let obj = profile;
+  for (const p of parts) {
+    if (obj == null) return undefined;
+    obj = obj[p];
+  }
+  const v = obj == null ? undefined : String(obj).trim();
+  return v || undefined;
+}
+
+/**
+ * For fields that the deterministic pass missed, ask Haiku to map label → profile key.
+ * Haiku never sees actual profile values — only the key schema above.
+ *
+ * @param {Array<{label:string, type:string, selector:string}>} unmatchedFields
+ * @param {Function} aiAnswer   ai.answer(prompt, opts) → Promise<{text:string}>
+ * @param {object} profile      full profileForAutofill() object
+ * @returns {Promise<Array<{label:string, value:string, selector:string}>>}
+ */
+async function planUnmatchedWithAI(unmatchedFields, aiAnswer, profile) {
+  if (!unmatchedFields.length || !aiAnswer) return [];
+
+  const fieldList = unmatchedFields.map((f) => f.label).join(', ');
+  const prompt = [
+    'Map each form field label to the most appropriate profile key from the list below.',
+    'Return ONLY a JSON array like [{"label":"Given Name","key":"personal.firstName"}].',
+    'Use null for key if nothing fits. No prose.',
+    '',
+    'PROFILE KEYS:\n' + PROFILE_KEY_DOCS,
+    '',
+    'FORM FIELD LABELS: ' + fieldList,
+    '',
+    'JSON:',
+  ].join('\n');
+
+  let raw = '';
+  try {
+    const r = await aiAnswer(prompt, { signal: AbortSignal.timeout(12000) });
+    raw = r.text || '';
+  } catch (_) { return []; }
+
+  // Parse the mapping
+  let mappings = [];
+  const start = raw.indexOf('['); const end = raw.lastIndexOf(']');
+  if (start !== -1 && end > start) {
+    try { mappings = JSON.parse(raw.slice(start, end + 1)); } catch (_) {}
+  }
+
+  const result = [];
+  for (const m of mappings) {
+    if (!m || typeof m.label !== 'string' || !m.key || m.key === 'null') continue;
+    const value = resolvePath(profile, m.key);
+    if (!value) continue;
+    const field = unmatchedFields.find((f) => f.label === m.label);
+    if (field) result.push({ label: m.label, value, selector: field.selector || '' });
+  }
+  return result;
+}
+
+module.exports = { planFromProfile, planUnmatchedWithAI, resolvePath, PROFILE_KEY_DOCS };
