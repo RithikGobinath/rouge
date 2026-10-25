@@ -18,6 +18,16 @@
     return Object.values(box).every(Number.isFinite) && box.w > 0 && box.h > 0 ? box : null;
   }
 
+  function developmentTarget(text, width, height) {
+    if (typeof text !== 'string' || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+    const command = text.trim().match(/^(?:point(?:\s+to)?|circle|orbit\s+around)\s+([a-d])$/i);
+    if (!command) return null;
+    const key = command[1].toLowerCase(), positions = { a: [.18, .24], b: [.72, .2], c: [.26, .68], d: [.7, .62] };
+    const w = Math.min(140, width * .25), h = Math.min(44, height * .15), inset = Math.min(12, width * .05, height * .05);
+    const [x, y] = positions[key];
+    return { key, rect: { x: Math.round(inset + (width - w - inset * 2) * x), y: Math.round(inset + (height - h - inset * 2) * y), w, h } };
+  }
+
   function timeline(elapsed, startReach = 0) {
     const t = Math.max(0, elapsed);
     if (t < OUT_MS) return { phase: 'unwinding', reach: mix(startReach, 1, smooth(t / OUT_MS)) };
@@ -106,5 +116,5 @@
     return { centers, opening };
   }
 
-  return { OUT_MS, HOLD_MS, BACK_MS, TOTAL_MS, S, CX, CY, smooth, mix, rect, timeline, plan, blendPlans, pose, sample };
+  return { OUT_MS, HOLD_MS, BACK_MS, TOTAL_MS, S, CX, CY, smooth, mix, rect, developmentTarget, timeline, plan, blendPlans, pose, sample };
 });

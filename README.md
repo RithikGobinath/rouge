@@ -19,7 +19,9 @@ Existing installations keep the internal `Clippy` data directory and Windows app
 
 ## Wand development
 
-For the local wand development view, run `npm run wand`. Type `point to A`, `point to B`, `point to C`, or `point to D`, or use the matching buttons. `circle A` and `orbit around A` also work; `retract` or Escape brings it back early. This view uses the live renderer with fixed local targets and makes no model calls.
+In a development run of Rouge, click the ribbon and type `point a`, `point b`, `point c`, or `point d`. Each command points to a different fixed screen region locally, without a model request. These shortcuts are disabled in packaged releases. `point to A`, `circle A`, and `orbit around A` are also accepted. `retract` brings the ribbon back early.
+
+For a separate view with labelled A/B/C/D targets, run `npm run wand`. It accepts the same commands and has matching buttons; Escape also retracts. This view uses the live renderer and makes no model calls.
 
 The wand releases only the upper U-shaped curve. The front band and lower loop stay fixed. A normal cycle extends for 1.5 seconds, holds a connected open orbit outside the target text for 2 seconds, and retracts for 1.5 seconds. Reduced motion skips travel and shows the target for 2 seconds. The Windows desktop behaviour still needs owner validation.
 

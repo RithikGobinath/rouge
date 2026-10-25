@@ -4,6 +4,21 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const G = require('../renderer/shared/wand-geometry');
 
+test('development commands accept short and long forms with stable, distinct screen regions', () => {
+  const points = [];
+  for (const key of ['a', 'b', 'c', 'd']) {
+    const short = G.developmentTarget('point ' + key, 1280, 800);
+    assert.deepEqual(short, G.developmentTarget('point to ' + key.toUpperCase(), 1280, 800));
+    assert.equal(short.key, key);
+    assert.ok(short.rect.x >= 0 && short.rect.x + short.rect.w <= 1280);
+    assert.ok(short.rect.y >= 0 && short.rect.y + short.rect.h <= 800);
+    points.push(JSON.stringify(short.rect));
+  }
+  assert.equal(new Set(points).size, 4);
+  assert.equal(G.developmentTarget('  POINT   A  ', 1280, 800).key, 'a');
+  for (const text of ['point e', 'point a menu', 'point at my email', '']) assert.equal(G.developmentTarget(text, 1280, 800), null);
+});
+
 test('the wand has a five-second symmetric cycle with a two-second hold', () => {
   assert.equal(G.TOTAL_MS, 5000);
   assert.equal(G.timeline(0).reach, 0);

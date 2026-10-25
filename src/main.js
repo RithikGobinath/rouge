@@ -8,6 +8,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { app, shell, safeStorage, nativeImage, BrowserWindow, screen } = require('electron');
 const brand = require('./brand');
+const { developmentTarget } = require('../renderer/shared/wand-geometry');
 
 const ROOT = path.join(__dirname, '..');
 const FLAGS = { shots: process.argv.includes('--shots'), smoke: process.argv.includes('--smoke') };
@@ -233,6 +234,16 @@ async function boot() {
   registerIpc({
     store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, quit: () => app.quit(),
     onCommandText: (text) => {
+      if (!app.isPackaged) {
+        const { width, height } = overlay.win.getContentBounds();
+        const target = developmentTarget(text, width, height);
+        if (target) {
+          pointAsk.close();
+          overlay.send('point:target', { rect: target.rect, label: `Development target ${target.key.toUpperCase()}` });
+          return;
+        }
+        if (/^retract$/i.test(text.trim())) { pointAsk.close(); return; }
+      }
       voice.runText(text).then((ok) => {
         if (!ok) ui.notice('I am still answering your previous request.', { tone: 'info' });
       }).catch((e) => {

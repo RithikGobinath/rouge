@@ -28,10 +28,10 @@
     }
     document.getElementById('wand-commands').addEventListener('submit', event => {
       event.preventDefault(); const text = document.getElementById('wand-command').value.trim();
-      const command = text.match(/^(?:point to|circle|orbit around)\s+([a-d])$/i);
-      if (command) pointTo(command[1].toLowerCase());
+      const command = RougeWandGeometry.developmentTarget(text, innerWidth, innerHeight);
+      if (command) pointTo(command.key);
       else if (/^(?:retract|stop)$/i.test(text)) window.__back();
-      else status.textContent = 'Use point to A, B, C or D.';
+      else status.textContent = 'Use point a, point b, point c or point d.';
     });
     document.querySelectorAll('[data-target]').forEach(button => button.addEventListener('click', () => pointTo(button.dataset.target)));
     document.getElementById('wand-retract').addEventListener('click', window.__back);
