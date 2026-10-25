@@ -29,25 +29,19 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
    * Handle a form detected by the extension.
    * @param {{ id:string, url:string, title:string, fields:object[] }} formInfo
    */
+  const MIN_FIELDS = 3;   // don't bother the user unless this many fields can be filled
+
   async function offer(formInfo) {
     const { id, title, fields } = formInfo;
 
-    // 1. "Fill it?" ask card.
-    const yes = await voice.ask({
-      kicker: 'Form detected',
-      title: 'Fill it?',
-      hint: title || formInfo.url || '',
-    });
-    if (!yes) { bridge.cancel(id); return; }
-
-    // 2. Load profile.
+    // 1. Load profile and build the fill plan BEFORE asking — only show the
+    //    popup if there are enough matching fields to be worth it.
     let rawProfile;
     try { rawProfile = profile.profileForAutofill(); } catch (e) {
-      ui.notice('Your profile could not be loaded.', { tone: 'error' });
       bridge.cancel(id); return;
     }
 
-    // 3. Build field schema — skip URL/file/document fields, cap at 12.
+    // 2. Build field schema — skip URL/file/document fields, cap at 12.
     const SKIP_TYPES = new Set(['url', 'file', 'color', 'range', 'hidden']);
     const SKIP_LABEL_RE = /\b(?:url|link|upload|attach|document|file|resume|cv|captcha|recaptcha|token|csrf)\b/i;
     const fieldSchema = (fields || [])
@@ -59,13 +53,9 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
       .map((f) => ({ label: f.label.trim(), type: f.type || 'text', selector: f.selector || '' }));
 
     _log(`autofill: fieldSchema (${fieldSchema.length}): ${JSON.stringify(fieldSchema)}`);
+    if (!fieldSchema.length) { bridge.cancel(id); return; }
 
-    if (!fieldSchema.length) {
-      ui.notice('No labelled fields were found in the form.', { tone: 'info' });
-      bridge.cancel(id); return;
-    }
-
-    // 4. Build fill plan — deterministic first, AI fallback for unrecognised labels.
+    // 3. Build fill plan — deterministic first, AI fallback for unrecognised labels.
     const deterministicPlan = planFromProfile(fieldSchema, rawProfile);
     const matchedLabels = new Set(deterministicPlan.map((e) => e.label));
     const unmatched = fieldSchema.filter((f) => !matchedLabels.has(f.label));
@@ -79,10 +69,19 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
     const plan = [...deterministicPlan, ...aiFallbackPlan];
     _log(`autofill: plan (${plan.length} entries, ${deterministicPlan.length} deterministic + ${aiFallbackPlan.length} AI): ${JSON.stringify(plan)}`);
 
-    if (!plan.length) {
-      ui.notice('No fields could be matched to your profile.', { tone: 'info' });
+    // Silently skip if too few fields match — not worth interrupting.
+    if (plan.length < MIN_FIELDS) {
+      _log(`autofill: only ${plan.length} field(s) matched (< ${MIN_FIELDS}), skipping popup`);
       bridge.cancel(id); return;
     }
+
+    // 4. "Fill it?" ask card — shown only when we have enough to fill.
+    const yes = await voice.ask({
+      kicker: 'Form detected',
+      title: `Fill it?  (${plan.length} fields)`,
+      hint: title || formInfo.url || '',
+    });
+    if (!yes) { bridge.cancel(id); return; }
 
     // 5. Per-field confirmation card.
     let accepted;
