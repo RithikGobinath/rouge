@@ -17,9 +17,18 @@
       ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,r.width,r.height);
       if(data&&!feeding)Art.drawClosed(ctx,localFrame(),now/1000*(state==='idle'?1:1.5),calm,level);
     }
-    function tick(now){raf=0;if(destroyed||paused||document.hidden||feeding)return;paint(now);if(!calm)raf=requestAnimationFrame(tick);}
-    function halt(){cancelAnimationFrame(raf);raf=0;}
-    function resume(){if(!destroyed&&!paused&&!feeding&&!document.hidden){paint();if(!calm&&!raf)raf=requestAnimationFrame(tick);}}
+    // The only motion is a highlight that takes about 12 seconds to travel the ribbon, so a resting ribbon needs far fewer
+    // than 60 frames a second. The window covers the whole screen and is transparent, so every frame costs a full repaint.
+    const FRAME_MS={idle:66,ready:66,reading:66,thinking:33,listening:33,speaking:33};
+    let timer=0,lastPaint=-1e9;
+    function schedule(){
+      if(calm||timer||raf||destroyed||paused||feeding||document.hidden)return;
+      const wait=Math.max(0,(FRAME_MS[state]||66)-(performance.now()-lastPaint)-8);   // the 8 ms leaves room for the frame to line up
+      timer=setTimeout(()=>{timer=0;if(!raf&&!destroyed)raf=requestAnimationFrame(tick);},wait);
+    }
+    function tick(now){raf=0;if(destroyed||paused||document.hidden||feeding)return;lastPaint=performance.now();paint(now);schedule();}
+    function halt(){cancelAnimationFrame(raf);raf=0;clearTimeout(timer);timer=0;}
+    function resume(){if(!destroyed&&!paused&&!feeding&&!document.hidden){paint();lastPaint=performance.now();schedule();}}
     function setReducedMotion(value){calm=!!value;halt();resume();}
     const onMotion=()=>setReducedMotion(motion.matches||forcedCalm());
     const onVisibility=()=>{if(document.hidden)halt();else resume();};
