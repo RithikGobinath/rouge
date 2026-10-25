@@ -23,7 +23,7 @@ test('every PM hour and multiple minute values create exactly the user-entered t
     }
   }
   assert.equal(calendar.events().length, 48);
-  const usage = calendar.command('add meeting to calendar at XXX pm on oct 24');
+  const usage = calendar.command('add meeting to calendar at XXX am on oct 25');
   assert.match(usage.message, /<time>/);
   assert.ok(!usage.message.includes('11:30'));
 });
