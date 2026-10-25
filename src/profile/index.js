@@ -111,8 +111,15 @@ function appendNote(note) {
 function profileForAutofill() {
   try {
     const p = loadProfile();
+    const personal = p.personal || {};
+    // Derive firstName / lastName from combined name if not stored separately.
+    const parts = (personal.name || '').trim().split(/\s+/).filter(Boolean);
+    const derived = {
+      firstName: personal.firstName || parts[0] || '',
+      lastName: personal.lastName || (parts.length > 1 ? parts.slice(1).join(' ') : ''),
+    };
     return {
-      personal: p.personal || {},
+      personal: { ...personal, ...derived },
       education: Array.isArray(p.education) ? p.education.slice(0, 3) : [],
       experience: Array.isArray(p.experience) ? p.experience.slice(0, 4) : [],
       skills: p.skills || {},

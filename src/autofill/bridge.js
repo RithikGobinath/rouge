@@ -38,6 +38,8 @@ function createBridge({ onFormDetected, log }) {
   let nextId = 1;
   // id → { status: 'pending'|'fill'|'cancelled'|'skip', plan: Array|null }
   const sessions = new Map();
+  // url → id: prevent the extension from firing twice for the same page
+  const activeUrls = new Map();
 
   const server = http.createServer(async (req, res) => {
     // Reject non-localhost connections
@@ -56,11 +58,19 @@ function createBridge({ onFormDetected, log }) {
     if (req.method === 'POST' && path === '/api/form') {
       let body;
       try { body = JSON.parse(await readBody(req)); } catch (_) { res.writeHead(400); res.end('{}'); return; }
+      const url = body.url || '';
+      // Dedup: if there is already an active session for this URL, reuse it.
+      if (activeUrls.has(url)) {
+        const existingId = activeUrls.get(url);
+        _log(`autofill/bridge: duplicate form event for ${url}, reusing id=${existingId}`);
+        res.writeHead(200); res.end(JSON.stringify({ id: existingId })); return;
+      }
       const id = String(nextId++);
       sessions.set(id, { status: 'pending', plan: null });
-      _log(`autofill/bridge: form from extension id=${id} fields=${(body.fields||[]).length} url=${body.url}`);
+      activeUrls.set(url, id);
+      _log(`autofill/bridge: form from extension id=${id} fields=${(body.fields||[]).length} url=${url}`);
       // Notify orchestrator asynchronously — don't block the HTTP response.
-      setImmediate(() => onFormDetected({ id, url: body.url || '', title: body.title || '', fields: body.fields || [] }));
+      setImmediate(() => onFormDetected({ id, url, title: body.title || '', fields: body.fields || [] }));
       res.writeHead(200); res.end(JSON.stringify({ id })); return;
     }
 
@@ -72,10 +82,12 @@ function createBridge({ onFormDetected, log }) {
       if (!session) { res.writeHead(404); res.end(JSON.stringify({ status: 'not_found' })); return; }
       const { status, plan } = session;
       if (status === 'fill') {
+        for (const [u, i] of activeUrls) if (i === id) { activeUrls.delete(u); break; }
         sessions.delete(id);
         res.writeHead(200); res.end(JSON.stringify({ status: 'fill', plan })); return;
       }
       if (status === 'cancelled' || status === 'skip') {
+        for (const [u, i] of activeUrls) if (i === id) { activeUrls.delete(u); break; }
         sessions.delete(id);
         res.writeHead(200); res.end(JSON.stringify({ status })); return;
       }
@@ -89,6 +101,7 @@ function createBridge({ onFormDetected, log }) {
       let body = {};
       try { body = JSON.parse(await readBody(req)); } catch (_) {}
       _log(`autofill/bridge: fill done id=${id} filled=${body.filled ?? '?'}`);
+      for (const [u, i] of activeUrls) if (i === id) { activeUrls.delete(u); break; }
       sessions.delete(id);
       res.writeHead(200); res.end(JSON.stringify({ ok: true })); return;
     }

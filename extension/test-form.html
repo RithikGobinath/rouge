@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Application Form</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 540px; margin: 48px auto; padding: 0 24px; color: #1a1a1a; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    p.sub { color: #666; font-size: 13px; margin-bottom: 32px; }
+    .field { margin-bottom: 20px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; color: #333; }
+    input, select, textarea {
+      width: 100%; padding: 9px 12px; border: 1px solid #d0d0d0; border-radius: 6px;
+      font-size: 14px; font-family: inherit; box-sizing: border-box;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #c0392b; }
+    textarea { resize: vertical; min-height: 80px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    button {
+      background: #c0392b; color: #fff; border: none; padding: 11px 28px;
+      border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover { background: #a93226; }
+    .section { border-top: 1px solid #eee; padding-top: 24px; margin-top: 24px; }
+    .section h2 { font-size: 15px; margin: 0 0 20px; color: #555; text-transform: uppercase; letter-spacing: .06em; }
+  </style>
+</head>
+<body>
+  <h1>Job Application</h1>
+  <p class="sub">This is a test form for the Rouge autofill extension.</p>
+
+  <form id="app-form" onsubmit="event.preventDefault(); alert('Form submitted (test)')">
+
+    <!-- Personal Info -->
+    <div class="section">
+      <h2>Personal Information</h2>
+      <div class="row">
+        <div class="field">
+          <label for="firstName">First Name</label>
+          <input id="firstName" name="firstName" type="text" placeholder="e.g. Rithik">
+        </div>
+        <div class="field">
+          <label for="lastName">Last Name</label>
+          <input id="lastName" name="lastName" type="text" placeholder="e.g. Gobinath">
+        </div>
+      </div>
+      <div class="field">
+        <label for="email">Email Address</label>
+        <input id="email" name="email" type="email" placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label for="phone">Phone Number</label>
+        <input id="phone" name="phone" type="tel" placeholder="(608) 867-0080">
+      </div>
+      <div class="field">
+        <label for="location">City / Location</label>
+        <input id="location" name="location" type="text" placeholder="Madison, WI">
+      </div>
+      <div class="field">
+        <label for="linkedin">LinkedIn URL</label>
+        <input id="linkedin" name="linkedin" type="text" placeholder="linkedin.com/in/...">
+      </div>
+    </div>
+
+    <!-- Education -->
+    <div class="section">
+      <h2>Education</h2>
+      <div class="field">
+        <label for="school">University / School</label>
+        <input id="school" name="school" type="text" placeholder="University of Wisconsin–Madison">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="degree">Degree</label>
+          <input id="degree" name="degree" type="text" placeholder="B.S. Computer Science">
+        </div>
+        <div class="field">
+          <label for="gradYear">Graduation Year</label>
+          <input id="gradYear" name="gradYear" type="text" placeholder="2028">
+        </div>
+      </div>
+      <div class="field">
+        <label for="gpa">GPA</label>
+        <input id="gpa" name="gpa" type="text" placeholder="3.5">
+      </div>
+    </div>
+
+    <!-- Work -->
+    <div class="section">
+      <h2>Work Experience</h2>
+      <div class="field">
+        <label for="employer">Most Recent Employer</label>
+        <input id="employer" name="employer" type="text">
+      </div>
+      <div class="field">
+        <label for="jobTitle">Job Title / Role</label>
+        <input id="jobTitle" name="jobTitle" type="text">
+      </div>
+      <div class="field">
+        <label for="summary">Brief Summary</label>
+        <textarea id="summary" name="summary" placeholder="Describe your background…"></textarea>
+      </div>
+    </div>
+
+    <button type="submit">Submit Application</button>
+  </form>
+</body>
+</html>

@@ -53,14 +53,31 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
 
     // 2. Load profile.
     let rawProfile;
-    try { rawProfile = profile.profileForAutofill(); } catch (e) {
+    try {
+      const full = profile.profileForAutofill();
+      // Only send what's needed for typical forms — keeps the prompt small and fast.
+      rawProfile = {
+        personal: full.personal || {},
+        education: (full.education || []).slice(0, 1),
+        experience: (full.experience || []).slice(0, 1).map((e) => ({
+          company: e.company, title: e.title, startDate: e.startDate, endDate: e.endDate,
+        })),
+        notes: (full.notes || []).slice(-5),
+      };
+    } catch (e) {
       ui.notice('Your profile could not be loaded.', { tone: 'error' });
       bridge.cancel(id); return;
     }
 
-    // 3. Build field schema from extension-reported fields (already labelled from DOM).
+    // 3. Build field schema — skip URL/file/document fields, cap at 12.
+    const SKIP_TYPES = new Set(['url', 'file', 'color', 'range', 'hidden']);
+    const SKIP_LABEL_RE = /\b(?:url|link|upload|attach|document|file|resume|cv|captcha|recaptcha|token|csrf)\b/i;
     const fieldSchema = (fields || [])
-      .filter((f) => f.label && f.label.trim())
+      .filter((f) => f.label && f.label.trim()
+        && !SKIP_TYPES.has(f.type)
+        && !SKIP_LABEL_RE.test(f.label)
+        && f.label.trim().length < 80)
+      .slice(0, 12)
       .map((f) => ({ label: f.label.trim(), type: f.type || 'text', selector: f.selector || '' }));
 
     _log(`autofill: fieldSchema (${fieldSchema.length}): ${JSON.stringify(fieldSchema)}`);
@@ -86,7 +103,7 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
       ].join('\n');
 
       ui.notice('Working out which fields to fill…', { tone: 'info' });
-      const result = await ai.answer(prompt, { signal: AbortSignal.timeout(15000) });
+      const result = await ai.answer(prompt, { signal: AbortSignal.timeout(30000) });
       _log(`autofill: raw AI response: ${result.text}`);
       plan = parsePlan(result.text);
       _log(`autofill: parsed plan (${plan.length} entries): ${JSON.stringify(plan)}`);
