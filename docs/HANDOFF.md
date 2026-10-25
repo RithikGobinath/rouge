@@ -6,6 +6,20 @@ Node: 24.18.0 | Electron 45
 App: npm start (CLIPPY_VERBOSE=1 for logs)
 Tests: npm test (node --test test/**/*.test.js)
 
+## Performance pass (branch `codex/product-polish`)
+Measured on this PC with the app idle (nothing being asked), as a share of one CPU core:
+- The resting ribbon repaints at 15 fps (33 fps while listening, thinking or speaking) instead of 60. The overlay window covers the whole screen and is transparent, so each frame was a full repaint. GPU process 18.8% -> 3.0%, overlay renderer 10% -> 2%; total about 34% -> 7.2% together with the helper and calendar changes below. (`renderer/shared/wand.js`)
+- Windows helper (`src/win/sidecar.ps1`): the key/click/front-window watcher is polled in C# (`Scanner`) instead of interpreted PowerShell every 15 ms, 3.05% -> about 0.3% while watching, with the same events. A program's name and path are cached per process (`Desk.Program`): `fg` 11.5 -> 0.7 ms, `win.list` 71 -> 2 ms, `win.focus` 88 -> 2 ms. The accessibility snapshot reads each control's properties in one batched UI Automation call: 275-300 -> about 165 ms on a 106-control Chromium page. Old and new helpers were run side by side on the same window: same controls, order, values, document text and truncation flag.
+- The calendar watcher asks for the pointer 4 times a second instead of 10, and never queues a second question while one is waiting. (`src/calendar/watch.js`)
+- Not measured after the last change: the idle total above predates the process cache and the batched snapshot.
+
+Known gaps found on the way, not fixed:
+- The C# credential filter (`SecretLabel` in `sidecar.ps1`) is weaker than the JS policy in `src/pointing/sensitive.js`: it does not split camelCase or underscores or match hyphenated phrases, so a field labelled "One-time code" or with the id `card_number` or `cardNumber` is listed with its typed value. Same in the original; a union of both checks would only hide more.
+- Settings window: the headings "Clippy" and "Show Clippy" are hard-coded, the copy says "A, B and C" for the model roles, the shortcut rename box has dark-theme inline colours on the light page, and its logo is the older 3D knot while the overlay uses the new ribbon art.
+- The auto-wand bubble shows the control's full accessibility name (500 characters for a flight card) and can sit on the wrap.
+- The overlay window is not reloaded if its renderer crashes.
+- `C:\Users\rithi\OneDrive\Documents\rouge` is a second checkout of this repo; both copies share one data folder, so only one app instance runs at a time.
+
 ## Current task
 Wand animation from `codex/ribbon-unravel-orbit`, brought onto main without that branch's development commands (`point a`–`point d`, `npm run wand`).
 - The upper curve of the ribbon unwinds from the knot and winds twice around the target. The last lap lies one ribbon half-width plus 4 px from the target, so it never covers the text; earlier laps sit one ribbon-width further out like a coil. (`renderer/shared/wand-geometry.js`)
