@@ -94,7 +94,7 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
     // 6. Send fill plan back to extension — resolves the pending poll.
     _log(`autofill: sending ${accepted.length} field(s) to extension`);
     bridge.sendFill(id, accepted);
-    ui.notice(`Filling ${accepted.length} field${accepted.length !== 1 ? 's' : ''}…`, { tone: 'info' });
+    ui.notice('Done!', { tone: 'info', durationMs: 5000 });
   }
 
   return { offer };

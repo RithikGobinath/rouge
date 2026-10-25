@@ -40,7 +40,7 @@ function createOverlayUi({ overlay }) {
      *  The caller must pass the full accumulated string each time (not a delta).
      *  The final say() call replaces this with the completed bubble. */
     streamChunk: (text) => overlay.send('ui:stream', { text: String(text || '') }),
-    notice: (text, o = {}) => { if (text) overlay.send('ui:notice', { text: String(text), tone: o.tone || 'info' }); },
+    notice: (text, o = {}) => { if (text) overlay.send('ui:notice', { text: String(text), tone: o.tone || 'info', durationMs: o.durationMs || 0 }); },
     speak: (text) => overlay.send('ui:speak', { text: String(text || '').slice(0, 600) }),
 
     /** The Check first card. Resolves true on Yes, false on Not now (or after 45 s of nobody answering). */

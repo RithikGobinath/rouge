@@ -202,11 +202,12 @@
     if (id === 'more') { openQuick('followup'); return; }
   }
 
-  function toast(text, tone) {
+  function toast(text, tone, durationMs) {
     clearTimeout(toastTimer);
     els.toast.textContent = text; els.toast.dataset.tone = tone || 'info';
     els.toast.classList.remove('hidden'); layout();
-    toastTimer = setTimeout(() => { els.toast.classList.add('hidden'); layout(); }, Math.max(tone === 'error' ? 7000 : 4500, 1500 + text.length * 50));
+    const ms = durationMs || Math.max(tone === 'error' ? 7000 : 4500, 1500 + text.length * 50);
+    toastTimer = setTimeout(() => { els.toast.classList.add('hidden'); layout(); }, ms);
   }
 
   // ---- typing a command --------------------------------------------------------
@@ -284,7 +285,7 @@
       layout();
     }
   });
-  bridge.on('ui:notice', (m) => toast(m.text, m.tone));
+  bridge.on('ui:notice', (m) => toast(m.text, m.tone, m.durationMs));
   bridge.on('ui:ask', (m) => { askId = m.id; $('#ask-title').textContent = m.card.title; $('#ask-hint').textContent = m.card.hint; els.ask.classList.remove('hidden'); layout(); });
   bridge.on('ui:ask:close', (m) => { if (m.id === askId) { els.ask.classList.add('hidden'); layout(); } });
   bridge.on('ui:offer', (m) => { offerId = m.id; els.offerSteps.textContent = (m.labels || []).join('  ›  '); els.offer.classList.remove('hidden'); layout(); });
