@@ -10,7 +10,7 @@ const SCREEN = /\b(chrome|edge|firefox|brave|browser|google flights|on (?:the |m
 const INTERACTIVE = /\b(flight|flights|compare|search|fill|click|check|results|form|fare|website|webpage)\b/i;
 // Multi-step desktop navigation: 'open X and do Y', 'show me where', 'navigate to', 'go to [setting]', 'find X in [app]'.
 // Deliberately excludes single-step commands like 'open notepad' (no 'and verb' or 'show me where').
-const NAVIGATE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to)\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b/i;
+const NAVIGATE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to)\b|\bshow\s+me\s+the\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b|\bpoint\s+(?:to|at)\b|\bwhere\s+is\s+(?:the\s+)?\b|\bhighlight\b/i;
 
 /**
  * @param {{task:string, user?:string, goal?:string, webAccess?:boolean}} input

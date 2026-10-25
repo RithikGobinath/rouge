@@ -17,4 +17,7 @@ test('Auto keeps cheap work on A and sends live or computer work to B', () => {
   assert.deepEqual(pickAuto({ task: 'plan', user: 'go to the Privacy section in Settings', goal: 'go to the Privacy section in Settings' }), { role: 'B', mode: 'computer' });
   // Single-step 'open X' must NOT route to computer
   assert.deepEqual(pickAuto({ task: 'plan', user: 'open notepad' }), { role: 'A', mode: 'reply' });
+  // Pointing / locating patterns: 'point to X', 'where is X' must route to computer B
+  assert.deepEqual(pickAuto({ task: 'plan', user: 'point to the close button', goal: 'point to the close button' }), { role: 'B', mode: 'computer' });
+  assert.deepEqual(pickAuto({ task: 'plan', user: 'where is the close button', goal: 'where is the close button' }), { role: 'B', mode: 'computer' });
 });

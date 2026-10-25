@@ -43,8 +43,9 @@ function looksLikeBlocker(text) {
  * pages often have thin accessibility trees (mostly image thumbnails), so the
  * normal meaningfulObservation gate must be relaxed for these goals.
  */
+const NAV_RE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to|the)\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b|\bpoint\s+(?:to|at)\b|\bwhere\s+is\s+(?:the\s+)?\b|\bhighlight\b/i;
 function isNavigationGoal(goal) {
-  return /\b(?:show\s+me\s+where|navigate\s+to|go\s+to|open\b.{0,80}\band\s+(?:show|find|navigate))\b/i.test(String(goal || ''));
+  return NAV_RE.test(String(goal || ''));
 }
 
 function completionEvidence(goal, snapshot, answer) {
@@ -124,6 +125,15 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
         let final;
         try { final = JSON.parse(text); } catch (_) { /* Never execute a partial or malformed final plan. */ }
         if (!final || typeof final.say !== 'string' || !final.say.trim() || !Array.isArray(final.actions) || final.actions.length) {
+          // For navigation goals the model sometimes replies in plain text instead of JSON.
+          // When JSON parse failed entirely (!final), accept the raw text as the answer
+          // so long as the agent has observed the screen (toolCount > 0, lastSnapshot set).
+          // This also passes lastSnapshot so autoWand can fire in session.js.
+          if (!final && isNavigationGoal(goal) && text && text.trim() && toolCount > 0 && lastSnapshot) {
+            if (completionEvidence(goal, lastSnapshot, text)) {
+              return finish(text.trim(), { snapshot: lastSnapshot });
+            }
+          }
           return finish('The computer task stopped without a verified final answer.');
         }
         if (!completionEvidence(goal, lastSnapshot, final.say)) {
