@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 for (const box of [{ x: 900, y: 250, w: 120, h: 30 }, { x: 1280, y: 0, w: 160, h: 24 }, { x: 1300, y: 860, w: 140, h: 40 }]) {
-test(`wrapped strand surrounds a clock at ${box.x},${box.y} and stops requesting frames`, () => {
+test(`wrapped strand underlines a clock at ${box.x},${box.y} and stops requesting frames`, () => {
   let now = 0; let id = 0; let arrived = 0; let spots = 0;
   const frames = new Map(); const painted = [];
   const noop = () => {};
@@ -30,14 +30,10 @@ test(`wrapped strand surrounds a clock at ${box.x},${box.y} and stops requesting
   assert.equal(strand.getState(), 'pointing');
   assert.equal(frames.size, 0, 'settled reminder uses no animation loop');
   assert.equal(spots, 0, 'wrap replaces the ordinary corner marker');
-  const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
-  assert.ok(painted.some(([x, y]) => x > cx && y < cy), 'ribbon loops above the clock center');
-  assert.ok(painted.some(([x, y]) => x > cx && y > cy), 'ribbon loops below the clock center');
-  // The ring is allowed to extend slightly past the screen edge at the side the clock
-  // is flush against (e.g. y < 0 for a top-bar clock, x > W for a right-edge clock).
-  // The canvas clip discards those pixels; what matters is the ribbon does not extend
-  // past the far side of the screen where it would be completely unexpected.
-  assert.ok(painted.every(([x, y]) => x > -50 && y > -50 && x <= 1490 && y <= 950), 'ribbon does not wander far off any screen edge');
+  const cx = box.x + box.w / 2;
+  assert.ok(painted.some(([x]) => x >= cx), 'ribbon spans across the clock horizontally');
+  assert.ok(painted.some(([x, y]) => x >= box.x && x <= box.x + box.w && (y >= box.y + box.h || y <= box.y)), 'ribbon underlines (or overlines) outside the clock');
+  assert.ok(painted.every(([x, y]) => x >= -10 && y >= -10 && x <= 1450 && y <= 910), 'underline stays within display bounds');
   strand.destroy();
 });
 }

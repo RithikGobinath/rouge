@@ -54,19 +54,25 @@
    */
   function aimAt(open, box, W, H, wrap) {
     const a = { x: open.x, y: open.y };
-    let ring = null;
+    let underline = null;
+    let b;
     if (wrap) {
-      const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
-      // The ring must orbit outside the text so the clock remains visible beneath it.
-      // The ribbon is ~7 px wide on each side; add another 10 px of breathing room so
-      // neither edge crosses into the text. Screen-edge clips (top/right) are handled by
-      // the canvas itself — do not cap ry/rx by cy or (W-cx) since that collapses the
-      // ring into the text when the clock sits at the very top or right of the screen.
-      const rx = Math.max(1, Math.min(box.w / 2 + 26, W - cx - 3));
-      const ry = Math.max(1, box.h / 2 + 20);
-      ring = { cx, cy, rx, ry, angle: Math.atan2((a.y - cy) / ry, (a.x - cx) / rx) };
+      // Underline/highlight mode: draw a clear line beneath the clock box
+      // (or above it if the clock is flush with the bottom of the screen, e.g. Windows taskbar).
+      const padY = 8;
+      const sitsAtBottom = (box.y + box.h) >= (H - 20);
+      const uy = sitsAtBottom
+        ? clamp(box.y - padY, 12, H - 12)
+        : clamp(box.y + box.h + padY, 12, H - 12);
+      // Determine if mark arrives from left or right of the box center
+      const fromRight = a.x >= (box.x + box.w / 2);
+      const xStart = fromRight ? clamp(box.x + box.w + 14, 10, W - 10) : clamp(box.x - 14, 10, W - 10);
+      const xEnd = fromRight ? clamp(box.x - 14, 10, W - 10) : clamp(box.x + box.w + 14, 10, W - 10);
+      b = { x: xStart, y: uy };
+      underline = { xStart, xEnd, y: uy };
+    } else {
+      b = stopPoint(box, a);
     }
-    const b = ring ? { x: ring.cx + ring.rx * Math.cos(ring.angle), y: ring.cy + ring.ry * Math.sin(ring.angle) } : stopPoint(box, a);
     const span = gap(a, b) || 1;
     const ux = (b.x - a.x) / span; const uy = (b.y - a.y) / span;
     const hl = Math.hypot(open.tx, open.ty) || 1;
@@ -81,13 +87,13 @@
       c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
       c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
       mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
-      ring,
+      underline,
     };
   }
 
   const blendPlans = (p, q, f) => {
     const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
-    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), ring: q.ring };
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), underline: q.underline };
   };
 
   /**
@@ -96,7 +102,7 @@
    * goes. `main` is the length at the end of the curve, before the curl.
    */
   function flatten(plan) {
-    const { a, c1, c2, b, mid } = plan;
+    const { a, c1, c2, b, mid, underline } = plan;
     const n = Math.max(6, Math.ceil((gap(a, c1) + gap(c1, c2) + gap(c2, b)) / STEP));
     const xs = []; const ys = []; const len = [];
     for (let i = 0; i <= n; i += 1) {
@@ -107,12 +113,13 @@
       len.push(i ? len[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) : 0);
     }
     const main = len[n];
-    if (plan.ring) {
-      const { cx, cy, rx, ry, angle } = plan.ring;
-      const count = Math.max(24, Math.ceil(TAU * Math.max(rx, ry) / STEP));
+    if (underline) {
+      const { xStart, xEnd, y } = underline;
+      const dist = Math.abs(xEnd - xStart);
+      const count = Math.max(12, Math.ceil(dist / STEP));
       for (let i = 1; i <= count; i += 1) {
-        const theta = angle + TAU * i / count;
-        const x = cx + rx * Math.cos(theta); const y = cy + ry * Math.sin(theta);
+        const t = i / count;
+        const x = xStart + (xEnd - xStart) * t;
         len.push(len[len.length - 1] + Math.hypot(x - xs[xs.length - 1], y - ys[ys.length - 1]));
         xs.push(x); ys.push(y);
       }
@@ -258,12 +265,8 @@
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
         if (wrap) {
-          // Allow the ring to extend past the screen edges so it orbits outside
-          // the text even when the clock is flush against the top or right edge.
-          // The canvas clip discards what is off-screen; only clamp the far edges
-          // to avoid the ribbon wrapping all the way around the whole screen.
-          px[i] = clamp(px[i], -across, W - across - 1);
-          py[i] = clamp(py[i], -across, H - across - 1);
+          px[i] = clamp(px[i], 2, W - 2);
+          py[i] = clamp(py[i], 2, H - 2);
         }
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
         rx[i] = px[i] - ty[i] * across; ry[i] = py[i] + tx[i] * across;
