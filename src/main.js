@@ -289,6 +289,12 @@ async function boot() {
     speech.init().then((r) => { log(`speech: ${r.ok ? r.recognizer : r.error}`); push(); });
     apps.load();
   }
+  // Offers a price comparison when the browser in front is on a product page.
+  if (!TEST) {
+    const shopping = require('./shopping/watch').createShoppingWatch({ sidecar, ui, ai, store, log, visible: () => overlay.visible, busy: () => voice.active || voice.asking });
+    shopping.start();
+    app.on('before-quit', () => shopping.stop());
+  }
   folders.load();
   folders.refreshAll();
   if (store.settings().useClaudeCode) ai.claudeCode.available().then(push);

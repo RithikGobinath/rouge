@@ -28,9 +28,9 @@ function publicWebUrl(value) {
 }
 
 /** Basic server tools need no client tool loop or browser session. */
-function webTools() {
+function webTools({ searches = 3 } = {}) {
   return [
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 3 },
+    { type: 'web_search_20250305', name: 'web_search', max_uses: searches },
     { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 2, max_content_tokens: 12000, citations: { enabled: true } },
   ];
 }
@@ -44,6 +44,7 @@ function webResponse(content) {
   let successfulResults = 0;
   const documents = [];
   const fetched = [];
+  const found = [];            // every page a search returned, so a caller can check a link it was given
   const sources = [];
   const seen = new Set();
   function source(url, title) {
@@ -57,7 +58,7 @@ function webResponse(content) {
     for (const result of Array.isArray(value) ? value : value ? [value] : []) {
       if (!result || typeof result !== 'object') continue;
       if (result.type === 'web_search_tool_result_error' || result.type === 'web_fetch_tool_result_error') { webError = true; continue; }
-      if (result.type === 'web_search_result') { successfulResults += 1; continue; }
+      if (result.type === 'web_search_result') { successfulResults += 1; if (found.length < 40) found.push({ url: result.url, title: result.title }); continue; }
       if (result.type === 'web_fetch_result') {
         successfulResults += 1;
         const document = { url: result.url, title: result.content && result.content.title || result.title || '' };
@@ -66,11 +67,19 @@ function webResponse(content) {
       }
     }
   }
+  // What the tools did, in short: each query or address, then how many results or which error. For logs only.
+  const trace = [];
+  const hostOnly = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return '?'; } };
   blocks.forEach((block, index) => {
     if (!block || typeof block !== 'object') return;
-    if (block.type === 'server_tool_use' && ['web_search', 'web_fetch'].includes(block.name)) webUsed = true;
+    if (block.type === 'server_tool_use' && ['web_search', 'web_fetch'].includes(block.name)) {
+      webUsed = true;
+      trace.push(`${block.name} ${String(block.input && (block.input.query || block.input.url) || '').slice(0, 80)}`);
+    }
     if (block.type === 'web_search_tool_result' || block.type === 'web_fetch_tool_result') {
       webUsed = true; lastResult = index; results(block.content);
+      const c = block.content;
+      trace.push(Array.isArray(c) ? `-> ${c.length} results: ${c.slice(0, 6).map((r) => hostOnly(r && r.url)).join(',')}` : `-> ${c && (c.error_code || c.type) || 'result'}`);
     }
   });
   // Preambles such as "I'll search" must never corrupt a final JSON plan.
@@ -89,7 +98,7 @@ function webResponse(content) {
       }
     }
   }
-  return { text: finalBlocks.map((block) => block.text).join('').trim(), sources, webUsed, webError, successfulResults };
+  return { text: finalBlocks.map((block) => block.text).join('').trim(), sources, found, webUsed, webError, successfulResults, trace };
 }
 
 module.exports = { publicWebUrl, webTools, webResponse };

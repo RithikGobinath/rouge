@@ -47,7 +47,7 @@ async function anthropicMessages(o) {
   const body = { model: o.model, max_tokens: Number(o.maxTokens) || 700, messages: o.messages };
   if (o.system) body.system = o.system;
   if (o.tools) body.tools = o.tools;
-  else if (o.web) body.tools = webTools();
+  else if (o.web) body.tools = webTools({ searches: o.webSearches });
   if (o.thinking) body.thinking = o.thinking;
   if (o.cacheControl) body.cache_control = o.cacheControl;
   if (o.effort || o.format) {
@@ -82,7 +82,7 @@ async function anthropic(o) {
   const result = webResponse(data.content);
   if (result.webError && !result.successfulResults) throw new AiError('The internet lookup was unavailable or reached its limit. Please try again.', { provider: 'anthropic', code: 'web_unavailable' });
   if (!result.text) throw new AiError('Claude returned an empty answer. Please try again.', { provider: 'anthropic', code: 'empty' });
-  return o.details ? { text: result.text, sources: result.sources, webUsed: result.webUsed } : result.text;
+  return o.details ? { text: result.text, sources: result.sources, found: result.found, webUsed: result.webUsed, trace: result.trace } : result.text;
 }
 
 /**

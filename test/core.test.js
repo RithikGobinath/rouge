@@ -35,10 +35,10 @@ test('settings: defaults, validated patches, persistence', (t) => {
 test('keys: encrypted on disk, never handed to a window, cleared on empty', async (t) => {
   const dir = tmp(); t.after(() => rm(dir));
   const s = createStore({ dir, cipher });
-  assert.deepEqual(s.keyStatus(), { typesafe: false, gemini: false, anthropic: false });
+  assert.deepEqual(s.keyStatus(), { typesafe: false, gemini: false, anthropic: false, serper: false });
   const r = await s.setKeys({ gemini: 'AIzaSyExampleKey123', anthropic: 'sk-ant-example' });
   assert.equal(r.ok, true);
-  assert.deepEqual(s.keyStatus(), { typesafe: false, gemini: true, anthropic: true });
+  assert.deepEqual(s.keyStatus(), { typesafe: false, gemini: true, anthropic: true, serper: false });
   assert.equal(s.getKey('gemini'), 'AIzaSyExampleKey123');
   const onDisk = fs.readFileSync(path.join(dir, 'keys.json'), 'utf8');
   assert.ok(!onDisk.includes('AIzaSyExampleKey123') && !onDisk.includes('sk-ant-example'), 'no plain key on disk');
@@ -47,7 +47,7 @@ test('keys: encrypted on disk, never handed to a window, cleared on empty', asyn
   assert.equal((await s.setKeys({ bogus: 'x' })).ok, false);
   await s.setKeys({ typesafe: 'tsk_abc' });
   await s.setKeys({ gemini: '' });
-  assert.deepEqual(s.keyStatus(), { typesafe: true, gemini: false, anthropic: true }, 'empty clears one and leaves the others');
+  assert.deepEqual(s.keyStatus(), { typesafe: true, gemini: false, anthropic: true, serper: false }, 'empty clears one and leaves the others');
   const again = createStore({ dir, cipher });
   assert.equal(again.getKey('typesafe'), '', 'nothing is readable until init() has decrypted');
   await again.init();
