@@ -38,7 +38,12 @@ retries loading it automatically.
 - Meetings due together share a compact popup with the title, meeting start time,
   and actual minutes remaining. The wand extends from the companion to a thick underline beneath the
   **computer's system clock**, drawing attention to the current time being 15 minutes before the
-  meeting. The popup's start time is never a wand target. The popup dismisses
+  meeting. An outline highlights the native clock without covering its digits or
+  taking mouse input. The compact 220px event popup sits to the clock's left,
+  just above the taskbar, and shows the full event title, start time and minutes
+  remaining. It uses another adjacent position when that corner cannot fit
+  inside the usable work area. Long titles wrap rather than being truncated.
+  The popup's start time is never a wand target. The popup dismisses
   after 20 seconds or with Dismiss; the wand retracts with it. Existing guidance
   keeps priority; the reminder borrows the wand once that guidance retracts.
 - The overlay covers the full primary display so the wand can reach its menu
@@ -68,7 +73,20 @@ retries loading it automatically.
   its binary stays in the development app-data directory, outside the repo.
 - Windows: the existing sidecar reads the native taskbar clock rectangle, with
   UI Automation for the Windows 11 clock. Physical pixels convert to overlay
-  coordinates using the existing Electron DPI conversion.
+  coordinates using the existing Electron DPI conversion. A visible reminder
+  retries clock targeting when that helper becomes available or restarts.
+  Windows 11 matching checks the date/time content's XAML class separately from
+  its automation ID. The observed Windows 11 clock uses the shared ID
+  `SystemTrayIcon` and class `SystemTray.OmniButton`. It is exposed under the
+  taskbar's main accessibility tree, outside the native `TrayNotifyWnd` subtree.
+  Its class plus a current-time label identifies it without selecting other
+  controls that share the ID. A native notification-area subtree is a final
+  fallback; application buttons are never time evidence.
+  Hidden, separate ambiguous matches and rectangles outside the taskbar are
+  rejected. A lookup can take up to five seconds and one short retry handles a
+  cold accessibility tree; there is no continuing taskbar poll.
+  Logs record safe `system clock:` status codes for missing controls, lookup
+  failures/timeouts, invalid bounds and a clock outside the primary display.
 - A hidden, missing, ambiguous or off-display clock produces the popup with
   “System clock unavailable” and no wand target. Rouge never substitutes the popup
   time, moves the mouse, or opens the clock. This geometry
@@ -116,3 +134,16 @@ hidden menu bar. Those diagnostics used no calendar event or screen capture. Pix
 visual validation.
 Live notification timing against the owner's actual calendar still depends on
 that private snapshot being present at the configured path.
+
+The clock outline and adjacent popup have additional authored regression cases
+for bottom, top and side taskbars, display changes, dismissal and unavailable
+clock geometry. Those new cases have not been executed; the owner requested
+preparation without running tests. Windows pixel alignment remains unverified.
+The native clock matcher also has authored checks for class-vs-ID matching,
+current local time and whitespace variations. The full production C# helper
+compiled successfully. The desktop tool did not expose a targetable taskbar;
+an owner-authorized read-only native inspection subsequently found the actual
+clock peer. After correcting its search scope, the production sidecar clock API
+returned `ready` with the clock's measured rectangle. No screenshots, injected
+input, automatic demo commands or regression test execution were performed.
+The displayed wand and popup still need owner visual validation.

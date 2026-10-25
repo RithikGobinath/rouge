@@ -250,7 +250,7 @@ async function boot() {
     store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, quit: () => app.quit(),
     clockRect: () => {
       const display = screen.getPrimaryDisplay();
-      return systemClockRect({ helper: path.join(app.getPath('userData'), 'bin', 'menu-clock'), sidecar,
+      return systemClockRect({ helper: path.join(app.getPath('userData'), 'bin', 'menu-clock'), sidecar, log,
         display: display.bounds, workArea: display.workArea, overlayBounds: overlay.win.getBounds(), physicalToDip: (p) => screen.screenToDipPoint(p) });
     },
     onCommandText: (text) => {
@@ -283,7 +283,11 @@ async function boot() {
   store.on('keys', () => { push(); });
   folders.on('change', push);
   routines.on('change', push);
-  sidecar.on('availability', push);
+  sidecar.on('availability', () => {
+    push();
+    // A startup reminder can appear before the Windows clock reader is ready.
+    if (overlayReady) overlay.send('overlay:area', overlay.usableArea);
+  });
   services.reminders.on('change', push);
   powerMonitor.on('resume', services.reminders.refresh);
 

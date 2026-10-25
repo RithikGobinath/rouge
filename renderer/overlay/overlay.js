@@ -9,7 +9,7 @@
     pill: $('#pill'), pillWords: $('#pill-words'), bubble: $('#bubble'), bubK: $('#bub-k'), bubText: $('#bub-text'), bubHint: $('#bub-hint'), bubSources: $('#bub-sources'), bubActions: $('#bub-actions'),
     ask: $('#askfirst'), askTitle: $('#ask-title'), askHint: $('#ask-hint'), offer: $('#offer'), offerSteps: $('#offer-steps'),
     quick: $('#quick'), quickInput: $('#quick-input'), toast: $('#toast'),
-    reminder: $('#meeting-reminder'), meetingTitle: $('#meeting-title'), meetingTime: $('#meeting-time'), meetingCountdown: $('#meeting-countdown'),
+    reminder: $('#meeting-reminder'), meetingTitle: $('#meeting-title'), meetingTime: $('#meeting-time'), meetingCountdown: $('#meeting-countdown'), clockHighlight: $('#clock-highlight'),
   };
 
   let settings = { markCorner: 'br', strip: false, markHidden: false, speakReplies: false };
@@ -20,7 +20,7 @@
   let pointing = false;
   let reminderOwnsWand = false;
   let reminderTimer = 0;
-  let clockRect = null; let clockRequest = 0;
+  let clockRect = null; let clockRequest = 0; let clockRetryTimer = 0;
   let workArea = null;
   let askId = 0; let offerId = 0;
   let quickMode = 'command';
@@ -64,14 +64,44 @@
   };
   const visible = (el) => !el.classList.contains('hidden');
 
+  function placeReminderAtClock(work) {
+    const rect = clockRect; const card = els.reminder;
+    if (!rect || !visible(card)) return false;
+    const w = card.offsetWidth; const h = card.offsetHeight; const gap = 8;
+    const minX = work.x + 8; const minY = work.y + 8;
+    const maxX = work.x + work.width - w - 8; const maxY = work.y + work.height - h - 8;
+    const x = clamp(rect.x + rect.w - w, minX, maxX);
+    const y = clamp(rect.y + (rect.h - h) / 2, minY, maxY);
+    const aboveLeft = { x: rect.x - w - gap, y: Math.min(rect.y, work.y + work.height) - h - gap };
+    const spot = [
+      aboveLeft,
+      { x, y: rect.y - h - gap },
+      { x, y: rect.y + rect.h + gap },
+      { x: rect.x - w - gap, y },
+      { x: rect.x + rect.w + gap, y },
+    ].find((s) => s.x >= minX && s.x <= maxX && s.y >= minY && s.y <= maxY
+      && (s === aboveLeft || s.x < rect.x + rect.w && s.x + w > rect.x || s.y < rect.y + rect.h && s.y + h > rect.y));
+    if (!spot) return false;
+    card.style.left = `${spot.x}px`; card.style.top = `${spot.y}px`;
+    return true;
+  }
+
   function layout() {
     const a = anchor(); const W = innerWidth; const H = innerHeight;
     const work = workArea || { x: 0, y: 0, width: W, height: H };
     const down = settings.strip || (a.top + a.bottom) / 2 < H / 2;
     const rightSide = !settings.strip && (a.left + a.right) / 2 > W / 2;
     let edge = down ? a.bottom + 10 : a.top - 10;
-    const stack = [els.reminder, els.ask, els.pill, els.quick, els.offer, els.toast];
-    if (els.bubble.dataset.anchor !== 'tip') stack.splice(3, 0, els.bubble);
+    const atClock = visible(els.reminder) && clockRect;
+    els.clockHighlight.classList.toggle('hidden', !atClock);
+    if (atClock) {
+      const r = clockRect;
+      els.clockHighlight.style.left = `${r.x}px`; els.clockHighlight.style.top = `${r.y}px`;
+      els.clockHighlight.style.width = `${r.w}px`; els.clockHighlight.style.height = `${r.h}px`;
+    }
+    const stack = [els.ask, els.pill, els.quick, els.offer, els.toast];
+    if (!placeReminderAtClock(work)) stack.unshift(els.reminder);
+    if (els.bubble.dataset.anchor !== 'tip') stack.splice(stack.indexOf(els.quick), 0, els.bubble);
     for (const el of stack) {
       if (!visible(el)) continue;
       const w = el.offsetWidth; const h = el.offsetHeight;
@@ -322,7 +352,8 @@
     if (mark) mark.setState('reading');
   }
 
-  async function refreshClockTarget() {
+  async function refreshClockTarget(retries = 1) {
+    clearTimeout(clockRetryTimer);
     const request = ++clockRequest;
     const rect = await bridge.clockRect().catch(() => null);
     if (request !== clockRequest || !visible(els.reminder)) return;
@@ -334,11 +365,14 @@
     else {
       if (reminderOwnsWand) { reminderOwnsWand = false; if (strand) strand.rewind(); }
       els.meetingCountdown.textContent = els.meetingCountdown.textContent.replace(/ · System clock unavailable\.$/, '') + ' · System clock unavailable.';
+      if (retries > 0) clockRetryTimer = setTimeout(() => refreshClockTarget(retries - 1), 350);
     }
+    layout();
   }
 
   function dismissMeeting() {
     clearTimeout(reminderTimer);
+    clearTimeout(clockRetryTimer);
     clockRequest += 1; clockRect = null;
     els.reminder.classList.add('hidden');
     if (reminderOwnsWand) { reminderOwnsWand = false; if (strand) strand.rewind(); }
@@ -351,6 +385,7 @@
       .filter((event) => event && Number.isFinite(event.startMs) && event.startMs > Date.now());
     if (!events.length) return;
     clearTimeout(reminderTimer);
+    clearTimeout(clockRetryTimer);
     clockRequest += 1; clockRect = null;
     const format = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
     els.meetingTitle.textContent = events.map((event, i) => `${i ? format.format(new Date(event.startMs)) + ' · ' : ''}${String(event.title || 'Meeting').slice(0, 200)}`).join('\n');

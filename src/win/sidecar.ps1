@@ -165,19 +165,89 @@ namespace Sidecar {
     public static bool Cloaked(IntPtr h) { int v; return DwmGetWindowAttribute(h, 14, out v, 4) == 0 && v != 0; }
     public static bool IsPinned(IntPtr h) { return (GetWindowLong(h, ExStyle) & 0x8) != 0; }
 
+    public static string ClockStatus = "not_requested";
+    public static Condition ClockCondition() {
+      return new OrCondition(
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTray.DateTimeIcon"),
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "DateTimeIcon"),
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "TimeInnerTextBlock"),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.DateTimeIcon"),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.DateTimeIconContent"),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "DateTimeIconContent"));
+    }
+
+    public static Condition ClockButtonCondition() {
+      return new AndCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.OmniButton"));
+    }
+
+    public static bool ClockName(string name, DateTime now) {
+      if (String.IsNullOrWhiteSpace(name) || name.Length > 512) return false;
+      string text = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", " ");
+      // Only used inside the notification area: application titles are never time evidence.
+      foreach (DateTime at in new DateTime[] { now, now.AddMinutes(-1) }) {
+        foreach (string format in new string[] { "t", "T", "h:mm tt", "hh:mm tt", "HH:mm" }) {
+          string time = System.Text.RegularExpressions.Regex.Replace(at.ToString(format), @"\s+", " ");
+          string pattern = System.Text.RegularExpressions.Regex.Escape(time).Replace(@"\ ", @"\s*");
+          if (System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<!\d)" + pattern + @"(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+        }
+      }
+      return false;
+    }
+
+    static int[] ClockElement(AutomationElement element, int[] tray) {
+      try {
+        if (element.Current.IsOffscreen) return null;
+        var r = element.Current.BoundingRectangle;
+        if (r.IsEmpty || r.Width <= 0 || r.Height <= 0 || r.Left < tray[0] - 1 || r.Top < tray[1] - 1 || r.Right > tray[2] + 1 || r.Bottom > tray[3] + 1) return null;
+        return new int[] { (int)Math.Floor(r.Left), (int)Math.Floor(r.Top), (int)Math.Ceiling(r.Right), (int)Math.Ceiling(r.Bottom) };
+      } catch (ElementNotAvailableException) { return null; }
+    }
+
+    static int[] ClockCandidate(AutomationElementCollection elements, int[] tray, bool byName) {
+      int[] found = null;
+      foreach (AutomationElement element in elements) {
+        if (byName && !ClockName(element.Current.Name, DateTime.Now)) continue;
+        int[] b = ClockElement(element, tray);
+        if (b == null) continue;
+        if (found != null && (b[0] >= found[2] || b[2] <= found[0] || b[1] >= found[3] || b[3] <= found[1])) { ClockStatus = "ambiguous_clock"; return null; }
+        if (found == null || (b[2] - b[0]) * (b[3] - b[1]) < (found[2] - found[0]) * (found[3] - found[1])) found = b;
+      }
+      if (found != null) ClockStatus = "ready";
+      return found;
+    }
+
     public static int[] ClockBounds() {
+      ClockStatus = "taskbar_missing";
       IntPtr tray = FindWindow("Shell_TrayWnd", null);
       if (tray == IntPtr.Zero || !IsWindowVisible(tray)) return null;
+      int[] trayBounds = Bounds(tray);
+      if (trayBounds == null) return null;
+      ClockStatus = "clock_not_found";
       IntPtr notify = FindWindowEx(tray, IntPtr.Zero, "TrayNotifyWnd", null);
-      IntPtr clock = FindWindowEx(notify, IntPtr.Zero, "TrayClockWClass", null);
-      if (notify != IntPtr.Zero && clock != IntPtr.Zero && IsWindowVisible(clock)) return Bounds(clock);
-      // Windows 11 exposes the clock through the taskbar's UI Automation tree.
-      AutomationElement root = AutomationElement.FromHandle(tray);
-      var match = root.FindFirst(TreeScope.Descendants,
-        new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTray.DateTimeIcon"));
-      if (match == null || match.Current.IsOffscreen) return null;
-      var r = match.Current.BoundingRectangle;
-      return r.IsEmpty ? null : new int[] { (int)r.Left, (int)r.Top, (int)r.Right, (int)r.Bottom };
+      if (notify != IntPtr.Zero && IsWindowVisible(notify)) {
+        IntPtr clock = FindWindowEx(notify, IntPtr.Zero, "TrayClockWClass", null);
+        if (clock != IntPtr.Zero && IsWindowVisible(clock)) {
+          int[] native = Bounds(clock);
+          if (native != null && native[2] > native[0] && native[3] > native[1]
+            && native[0] >= trayBounds[0] && native[1] >= trayBounds[1] && native[2] <= trayBounds[2] && native[3] <= trayBounds[3]) { ClockStatus = "ready"; return native; }
+        }
+      }
+      // XAML class names and AutomationIds are separate properties on Windows 11.
+      var root = AutomationElement.FromHandle(tray);
+      var matches = root.FindAll(TreeScope.Descendants, ClockCondition());
+      int[] result = ClockCandidate(matches, trayBounds, false);
+      if (result != null || ClockStatus == "ambiguous_clock") return result;
+      // Windows 11 exposes this notification button beside TrayNotifyWnd in the UIA tree.
+      var clockButtons = root.FindAll(TreeScope.Descendants, ClockButtonCondition());
+      result = ClockCandidate(clockButtons, trayBounds, true);
+      if (result != null || ClockStatus == "ambiguous_clock") return result;
+      var notificationRoot = notify != IntPtr.Zero && IsWindowVisible(notify) ? AutomationElement.FromHandle(notify)
+        : root.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.SystemTrayFrame"));
+      if (notificationRoot == null) return null;
+      var buttons = notificationRoot.FindAll(TreeScope.Descendants,
+        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+      return ClockCandidate(buttons, trayBounds, true);
     }
 
     /// <summary>The name of a process, and where its program is (empty when Windows will not say).</summary>
@@ -792,8 +862,9 @@ $Ops = @{}
 
 $Ops['system.clock'] = { param($r)
   $b = [Sidecar.Desk]::ClockBounds()
-  if ($b) { @{ rect = (As-Rect $b[0] $b[1] ($b[2] - $b[0]) ($b[3] - $b[1])) } }
-  else { @{ rect = $null } }
+  $rect = $null
+  if ($b) { $rect = As-Rect $b[0] $b[1] ($b[2] - $b[0]) ($b[3] - $b[1]) }
+  @{ rect = $rect; status = [Sidecar.Desk]::ClockStatus }
 }
 
 $Ops['ping'] = { param($r) @{ ok = $true; pid = $PID; ps = $PSVersionTable.PSVersion.ToString() } }

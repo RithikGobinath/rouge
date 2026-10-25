@@ -46,3 +46,33 @@ test('Windows taskbar physical pixels convert to overlay points at high DPI', as
   assert.equal(await systemClockRect({ platform: 'win32', display, overlayBounds: display,
     sidecar: { available: false, clock() { throw new Error('helper must stay stopped'); } } }), null);
 });
+
+test('Windows clock failures report safe diagnostic codes instead of hiding the cause', async () => {
+  for (const status of ['taskbar_missing', 'clock_not_found', 'ambiguous_clock', 'private control name']) {
+    const logs = [];
+    assert.equal(await systemClockRect({ platform: 'win32', display, overlayBounds: display,
+      sidecar: { available: true, clock: async () => ({ rect: null, status }) }, log: (line) => logs.push(line) }), null);
+    assert.deepEqual(logs, [`system clock: ${status === 'private control name' ? 'clock_not_found' : status}`]);
+  }
+  for (const [message, code] of [['system.clock timed out after 5000ms', 'lookup_timeout'], ['private helper text', 'lookup_failed']]) {
+    const logs = [];
+    assert.equal(await systemClockRect({ platform: 'win32', display, overlayBounds: display,
+      sidecar: { available: true, clock: async () => { throw new Error(message); } }, log: (line) => logs.push(line) }), null);
+    assert.deepEqual(logs, [`system clock: ${code}`]);
+  }
+});
+
+test('invalid native bounds never reach DPI conversion or become a clock target', async () => {
+  for (const rect of [{ x: 10, y: 10, w: -4, h: 20 }, { x: '10', y: 10, w: 4, h: 20 }, { x: 10, y: 10, w: 4, h: NaN }]) {
+    const logs = [];
+    assert.equal(await systemClockRect({ platform: 'win32', display, overlayBounds: display,
+      sidecar: { available: true, clock: async () => ({ rect }) }, physicalToDip() { assert.fail('invalid bounds must be rejected first'); },
+      log: (line) => logs.push(line) }), null);
+    assert.deepEqual(logs, ['system clock: invalid_native_bounds']);
+  }
+  const logs = [];
+  assert.equal(await systemClockRect({ platform: 'win32', display, overlayBounds: display,
+    sidecar: { available: true, clock: async () => ({ rect: { x: 10, y: 10, w: 4, h: 20 } }) },
+    physicalToDip() { throw new Error('conversion failed'); }, log: (line) => logs.push(line) }), null);
+  assert.deepEqual(logs, ['system clock: coordinate_conversion_failed']);
+});
