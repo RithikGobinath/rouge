@@ -58,6 +58,8 @@ function createWinSidecar(opts = {}) {
     uiaInvoke: (name, type, guard) => warm(() => call('uia.invoke', { name, type, ignorePid, ...(guard || {}) }, 8000), (r) => !r.ok),
     /** The control with keyboard focus, so typing never lands in a password box. */
     focused: () => call('uia.focused', {}, 3000),
+    /** The text highlighted in the front app; `own` when the focus is in one of our windows. */
+    selection: () => call('uia.selection', { ignorePid }, 3000),
     // Computer sessions use private, generation-scoped UIA refs; legacy voice calls keep their existing IDs.
     computerSnapshot: (hwnd = 0) => call('computer.snapshot', { hwnd, ignorePid }, 8000),
     computerDescribe: (snapshotId, ref) => call('computer.describe', { snapshotId, ref, ignorePid }, 5000),

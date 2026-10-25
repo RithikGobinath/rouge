@@ -333,6 +333,12 @@ async function boot() {
     shopping.start();
     app.on('before-quit', () => shopping.stop());
   }
+  // Offers to look up text the user highlights.
+  if (!TEST && !MAC_DEV) {
+    const lookup = require('./lookup/watch').createLookupWatch({ sidecar, ui, ai, store, log, visible: () => overlay.visible, busy: () => voice.active || voice.asking });
+    lookup.start();
+    app.on('before-quit', () => lookup.stop());
+  }
   folders.load();
   folders.refreshAll();
   if (store.settings().useClaudeCode) ai.claudeCode.available().then(push);

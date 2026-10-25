@@ -23,6 +23,7 @@
 #   {"id":18,"op":"win.topmost","hwnd":123}                put a window back above everything without activating it
 #   {"id":19,"op":"keys.state","vks":[32,17,18]}           which of these keys are down right now
 #   {"id":20,"op":"watch.start","keys":[32],"click":true,"fg":true}  /  {"op":"watch.stop"}
+#   {"id":21,"op":"uia.selection","ignorePid":1}           the text highlighted in the focused control or its document
 #
 # Sent on its own while watching: {"ev":"click","x":..,"y":..}, {"ev":"key","vk":..,"down":..}, {"ev":"fg",...}.
 # Coordinates are physical screen pixels (the process is per-monitor DPI aware).
@@ -789,6 +790,27 @@ namespace Sidecar {
     public static void Release(string id) {
       if (id == generation) { generation = null; refs.Clear(); root = null; target = IntPtr.Zero; }
     }
+    /// <summary>The text selected in the focused control, or in the document that holds it. Empty when nothing is selected or the control is a credential field; own is set when the focus is in one of our windows.</summary>
+    public static string Selection(uint ignore, out bool own) {
+      own = false;
+      AutomationElement e = AutomationElement.FocusedElement;
+      if (e == null) return "";
+      if (e.Current.ProcessId == (int)ignore) { own = true; return ""; }
+      if (Secret(e)) return "";
+      for (int n = 0; e != null && n < 8; n++) {
+        object p;
+        if (e.TryGetCurrentPattern(TextPattern.Pattern, out p)) {
+          System.Text.StringBuilder text = new System.Text.StringBuilder();
+          foreach (System.Windows.Automation.Text.TextPatternRange range in ((TextPattern)p).GetSelection()) {
+            if (text.Length >= 600) break;
+            text.Append(range.GetText(600 - text.Length)).Append(' ');
+          }
+          return text.ToString().Trim();
+        }
+        e = TreeWalker.ControlViewWalker.GetParent(e);
+      }
+      return "";
+    }
   }
 
   /// <summary>Reads stdin on its own thread, so the main loop can wait for a line and still watch the keyboard.</summary>
@@ -956,6 +978,13 @@ $Ops['computer.act'] = { param($r)
   } catch { Computer-Failure $_ }
 }
 $Ops['computer.release'] = { param($r) [Sidecar.Computer]::Release([string]$r.snapshotId); @{ ok = $true } }
+
+$Ops['uia.selection'] = { param($r)
+  $own = $false
+  $text = ''
+  try { $text = [Sidecar.Computer]::Selection((Pid-Of $r), [ref]$own) } catch { $text = '' }
+  @{ text = [string]$text; own = [bool]$own }
+}
 
 $Ops['input.text'] = { param($r)
   $delay = if ($null -ne $r.delayMs) { [int]$r.delayMs } else { 4 }

@@ -67,6 +67,11 @@ body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
 .a button:active { transform: scale(.94); }
 .a button.y { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .a button.y:hover { background: #3a3340; }
+.card.solo { padding: 0; background: transparent; border: 0; box-shadow: none; }
+.card.solo .a button.y { padding: 7px 18px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--lift); font-size: 12.5px; }
+.card.solo .a button.y:hover { background: var(--paper-2); }
+.card.solo .k, .card.solo .t, .card.solo .h, .card.solo #ask-no { display: none; }
+.card.solo .a { margin: 0; }
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; max-width: 420px; font-size: 13px; }
 .offer .a { margin: 0; }
 .offer .h { flex-basis: 100%; margin-top: 0; }

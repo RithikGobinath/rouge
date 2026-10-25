@@ -115,7 +115,7 @@
   // ---- Settings: the rest --------------------------------------------------------
   const sw = (id, key, invert) => { const b = $(id); b.addEventListener('click', () => { const on = b.getAttribute('aria-checked') !== 'true'; api.setSettings({ [key]: invert ? !on : on }); }); };
   sw('#tg-speak', 'speakReplies'); sw('#tg-strip', 'strip'); sw('#tg-show', 'markHidden', true); sw('#tg-login', 'startWithWindows'); sw('#tg-cc', 'useClaudeCode');
-  sw('#tg-web', 'webAccess'); sw('#tg-shop', 'shoppingOffers'); sw('#tg-auto', 'auto');
+  sw('#tg-web', 'webAccess'); sw('#tg-shop', 'shoppingOffers'); sw('#tg-lookup', 'lookupOffers'); sw('#tg-auto', 'auto');
   $('#corners').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) api.setSettings({ markCorner: b.dataset.c }); });
   $('#save-models').addEventListener('click', async () => {
     const models = Object.fromEntries(MODEL_FIELDS.map(([id, key]) => [key, $(id).value.trim()]));
@@ -153,7 +153,7 @@
     const s = S.settings;
     const set = (id, v) => $(id).setAttribute('aria-checked', String(Boolean(v)));
     set('#tg-speak', s.speakReplies); set('#tg-strip', s.strip); set('#tg-show', !s.markHidden); set('#tg-login', s.startWithWindows); set('#tg-cc', s.useClaudeCode);
-    set('#tg-web', s.webAccess !== false); set('#tg-shop', s.shoppingOffers !== false); set('#tg-auto', s.auto !== false);
+    set('#tg-web', s.webAccess !== false); set('#tg-shop', s.shoppingOffers !== false); set('#tg-lookup', s.lookupOffers !== false); set('#tg-auto', s.auto !== false);
     for (const b of document.querySelectorAll('#corners button')) b.classList.toggle('on', b.dataset.c === s.markCorner);
     $('#corner-row').style.opacity = s.strip ? '.45' : '1';
     $('#cc-line').textContent = S.claudeCode ? 'Claude Code is available as a fallback without an Anthropic key. A, B and C use your Anthropic key.' : 'Claude Code was not found. Save an Anthropic key to use A, B and C.';

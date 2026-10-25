@@ -15,6 +15,8 @@ Preferences. This does not enable background screen watching or change D.
 
 Price comparison on product pages ([SHOPPING.md](SHOPPING.md)) uses Google Shopping through a Serper key, or without one the same tools as above, and only after the user clicks its offer.
 
+Look up highlighted text ([LOOKUP.md](LOOKUP.md)) sends the text the user highlighted to the same tools, only after the user clicks its offer.
+
 Web search currently costs $10 per 1,000 searches plus model tokens. Web fetch
 has no additional tool fee; fetched content uses input tokens. Provider account
 access and event credits are not assumed.
