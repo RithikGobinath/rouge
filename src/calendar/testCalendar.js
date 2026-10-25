@@ -6,7 +6,7 @@ const { LEAD_MS } = require('./reminders');
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const COMMAND = /^add meeting to calendar at (\d{1,2})(?::(\d{2}))?\s*(am|pm) on (jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?) (\d{1,2})(?:,? (\d{4}))?[.!]?$/i;
-const USAGE = 'Use: add meeting to calendar at 11:30 pm on oct 24. You can include a year. This only adds a temporary test meeting.';
+const USAGE = 'Use: add meeting to calendar at <time> pm on <month> <day>. Replace <time> with your chosen hour or hour:minute. AM is also supported. You can include a year. This adds a temporary test meeting.';
 
 function createTestCalendar({ now = Date.now, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone } = {}) {
   const events = new Map();

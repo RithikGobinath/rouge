@@ -9,6 +9,25 @@ const { createMeetingReminders } = require('../src/calendar/reminders');
 const { createVoice } = require('../src/voice/session');
 const BASE = Date.parse('2026-10-25T04:00:00Z'); // Oct 24, 9 PM Pacific
 
+test('every PM hour and multiple minute values create exactly the user-entered time', () => {
+  const timeZone = 'America/Los_Angeles';
+  const calendar = createTestCalendar({ now: () => Date.parse('2026-10-24T18:00:00Z'), timeZone });
+  const format = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true });
+  for (let hour = 1; hour <= 12; hour += 1) {
+    for (const minute of [0, 7, 23, 58]) {
+      const chosen = `${hour}:${String(minute).padStart(2, '0')}`;
+      assert.equal(calendar.command(`add meeting to calendar at ${chosen} pm on oct 24`).ok, true);
+      const added = calendar.events().at(-1);
+      assert.equal(format.format(new Date(added.start.dateTime)), `${chosen} PM`);
+      assert.equal(new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date(added.start.dateTime)), '2026-10-24');
+    }
+  }
+  assert.equal(calendar.events().length, 48);
+  const usage = calendar.command('add meeting to calendar at XXX pm on oct 24');
+  assert.match(usage.message, /<time>/);
+  assert.ok(!usage.message.includes('11:30'));
+});
+
 test('the exact textbox command resolves PM and the date in local time', () => {
   const calendar = createTestCalendar({ now: () => BASE, timeZone: 'America/Los_Angeles' });
   assert.equal(calendar.command('what time is it?'), null);

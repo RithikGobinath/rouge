@@ -50,7 +50,9 @@ the previously added Mac launcher and position-only wand commands.
 
 ## Validation
 
-In Rouge's textbox, enter `add meeting to calendar at 11:30 pm on oct 24`.
+In Rouge's textbox, enter `add meeting to calendar at <your time> pm on oct 24`.
+Replace `<your time>` with the hour or hour:minute you choose. The meeting's
+start time is parsed from that input; there is no preset meeting time.
 The command accepts a 12-hour AM/PM time, an optional `:MM`, a month name and
 day, and an optional year. Without a year it uses the current local year;
 past or invalid dates are rejected instead of silently moving to next year.
