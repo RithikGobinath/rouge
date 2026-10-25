@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rouge</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="companion.css">
+</head>
+<body>
+
+<!-- Guidance strand canvas (layer 22, behind chat/knot) -->
+<canvas id="thread" aria-hidden="true"></canvas>
+
+<!-- The knot: draggable, toggles chat on click -->
+<button id="knot"
+  aria-label="Talk to Rouge"
+  title="Drag anywhere to move Rouge"
+  aria-controls="chat-panel"
+  aria-expanded="false">
+  <canvas id="knot-canvas" aria-hidden="true"></canvas>
+</button>
+
+<!-- Wand label for guide targets -->
+<div id="wand-label" role="status" hidden></div>
+
+<!-- Toast notifications -->
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- Chat / input panel (layer 26) -->
+<section id="chat-panel" aria-label="Rouge" hidden>
+  <div id="chat-transcript" role="log" aria-live="polite" aria-label="Transcript" hidden></div>
+
+  <!-- Reply tray -->
+  <div id="reply-tray" hidden>
+    <div class="reply-text" role="status" aria-live="polite"></div>
+    <div class="reply-actions"></div>
+  </div>
+
+  <!-- Tool nav -->
+  <div class="chat-nav" role="toolbar" aria-label="Tools">
+    <button id="nav-tasks" class="nav-btn" aria-label="Tasks" title="Tasks">📋</button>
+    <button id="nav-email" class="nav-btn" aria-label="Email" title="Email">✉️</button>
+  </div>
+
+  <!-- Input row -->
+  <div class="chat-input-row">
+    <input id="chat-input" type="text"
+      placeholder="Ask Rouge…"
+      aria-label="Message Rouge"
+      autocomplete="off"
+      spellcheck="false">
+    <button id="chat-submit" aria-label="Send" title="Send">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M2 8L14 2L9 14L8 9L2 8Z" fill="currentColor"/>
+      </svg>
+    </button>
+  </div>
+</section>
+
+<!-- Shared tool window (tasks or email, layer 20) -->
+<div id="tool-panel" role="dialog" aria-modal="false" hidden>
+  <div class="tool-content"></div>
+</div>
+
+<!-- Scripts in required order -->
+<script src="living-knot.js"></script>
+<script src="rouge-engine.js"></script>
+<script src="app.js"></script>
+<script src="rouge-motion.js"></script>
+</body>
+</html>

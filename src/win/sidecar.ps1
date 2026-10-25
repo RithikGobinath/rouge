@@ -89,8 +89,11 @@ namespace Sidecar {
     }
     static Input Button(uint flag) { Input i = new Input(); i.kind = 0; i.u.mouse.flags = flag; return i; }
 
+    [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
     public static bool IsDown(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
     public static int[] Where() { Spot p; GetCursorPos(out p); return new int[] { p.X, p.Y }; }
+    public static uint LastInput() { var i = new LASTINPUTINFO(); i.cbSize = (uint)Marshal.SizeOf(i); GetLastInputInfo(ref i); return i.dwTime; }
     public static void MoveTo(int x, int y) { SetCursorPos(x, y); }
 
     public static void Tap(ushort vk) { Send(Key(vk, false), Key(vk, true)); }
@@ -772,7 +775,7 @@ $Ops = @{}
 
 $Ops['ping'] = { param($r) @{ ok = $true; pid = $PID; ps = $PSVersionTable.PSVersion.ToString() } }
 $Ops['fg'] = { param($r) Describe-Front (Pid-Of $r) }
-$Ops['cursor'] = { param($r) $p = [Sidecar.Synth]::Where(); @{ x = $p[0]; y = $p[1] } }
+$Ops['cursor'] = { param($r) $p = [Sidecar.Synth]::Where(); @{ x = $p[0]; y = $p[1]; input = [Sidecar.Synth]::LastInput() } }
 
 $Ops['win.topmost'] = { param($r)
   $h = [IntPtr][int64]$r.hwnd
@@ -829,6 +832,7 @@ function Computer-Row($row) {
   $out = @{ ref = $row.Ref; name = $row.Name; type = $row.Type }
   if ($row.Focused) { $out.focused = $true }
   if ($null -ne $row.Value) { $out.value = $row.Value }
+  if ($row.W -gt 0 -and $row.H -gt 0) { $out.rect = @{ x = [int]$row.X; y = [int]$row.Y; w = [int]$row.W; h = [int]$row.H } }
   return $out
 }
 function Computer-Failure($fault) {

@@ -76,8 +76,45 @@ function createVoice(d) {
     if (!d.ai.canAnswer() && !(d.settings().useClaudeCode && await d.ai.claudeCode.available())) { d.ui.notice('Add an Anthropic key under Your keys to use Clippy’s Claude models.', { tone: 'info' }); return { ok: false }; }
     d.ui.state('thinking', { word: 'Working it out' });
     try {
-      if (!usesClaudeRouting() && QUESTION_START.test(text)) {
-        const a = await d.ai.answer(text, { history: lastAnswer, signal: ctx.signal });
+      // Instant local reply — no model call, no network latency.
+      function instantReply(reply) {
+        d.ui.say(reply, { sources: [] });
+        if (d.settings().speakReplies && d.ui.speak) d.ui.speak(reply);
+        lastAnswer.push({ role: 'user', text }, { role: 'assistant', text: reply });
+        lastAnswer = lastAnswer.slice(-8);
+        return { ok: true, said: true };
+      }
+      const PURE_GREETING = /^(?:hi|hello|hey|howdy)[!?.\s]*$/i;
+      const PURE_ACK = /^(?:thanks|thank\s+you|ok|okay|got it|sounds good|perfect|awesome|great|cool|nice|yep|sure)[!?.\s]*$/i;
+      const TIME_QUERY = /\bwhat(?:'s|\s+is)?\s+(?:the\s+)?(?:current\s+)?time\b|\bwhat\s+time\s+is\s+it\b|\btime\s+(?:right\s+now|please)\b|\b(?:tell|give)\s+(?:me\s+)?the\s+time\b|\bcurrent\s+time\b|\btime\s+is\s+it\b/i;
+      const DATE_QUERY = /\bwhat(?:'s|\s+is)?\s+(?:the\s+)?(?:current\s+)?(?:date|day|today)\b|\bwhat\s+(?:day|date)\s+is\s+(?:it|today)\b|\bwhat\s+(?:year|month)\s+is\s+it\b/i;
+
+      if (PURE_GREETING.test(text)) {
+        const replies = ['Hey! What can I do for you?', 'Hi! How can I help?', 'Hello! What would you like?'];
+        return instantReply(replies[Math.floor(Date.now() / 60000) % replies.length]);
+      }
+      if (PURE_ACK.test(text)) return instantReply('Of course! Anything else?');
+      if (TIME_QUERY.test(text)) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return instantReply(`It's ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz })}.`);
+      }
+      if (DATE_QUERY.test(text)) {
+        return instantReply(`Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`);
+      }
+
+      const CONVERSATIONAL = /^(?:hi|hello|hey|thanks|thank(?:\s+you)?|ok|okay|sure|great|cool|nice|got it|sounds good|awesome|perfect|yep|nope|wow|lol)\b/i;
+      if (QUESTION_START.test(text) || CONVERSATIONAL.test(text)) {
+        // Stream word-by-word into the bubble as chunks arrive.  The accumulated
+        // string grows with each delta; ui:stream replaces the bubble text each
+        // time so the user sees words appearing live.  If the UI does not expose
+        // streamChunk (e.g. in tests) onChunk is a no-op and streaming still
+        // happens silently, with the final say() painting the bubble as before.
+        let streamed = '';
+        const onChunk = (chunk) => {
+          streamed += chunk;
+          if (d.ui.streamChunk) d.ui.streamChunk(streamed);
+        };
+        const a = await d.ai.answer(text, { history: lastAnswer, signal: ctx.signal, onChunk });
         lastAnswer.push({ role: 'user', text }, { role: 'assistant', text: a.text });
         lastAnswer = lastAnswer.slice(-8);
         d.ui.say(a.text, { sources: a.sources });
@@ -93,7 +130,9 @@ function createVoice(d) {
       if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
       if (plan.actions.length) return { ok: true, actions: plan.actions, completion: plan };
       if (plan.say) showAnswer(text, plan);
-      return { ok: true, said: true };
+      // Return completion so doClause can fire autoWand even when the computer agent
+      // did all work itself and left an empty actions list (navigation tasks).
+      return { ok: true, said: true, completion: plan };
     } catch (e) {
       if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
       d.ui.notice(e.message || 'That did not work.', { tone: 'error' });
@@ -119,15 +158,85 @@ function createVoice(d) {
     return out;
   }
 
+  /** Same NAVIGATE patterns as auto.js — anything that routes to computer B for navigation. */
+  const NAV_RE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to|the)\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b|\bpoint\s+(?:to|at)\b|\bwhere\s+is\s+(?:the\s+)?\b|\bhighlight\b/i;
+  const isNavGoal = (text) => NAV_RE.test(String(text || ''));
+
+  /** After a navigation task completes, visually highlight the control mentioned in the agent's reply. */
+  async function autoWand(say, snapshot, goal) {
+    if (!snapshot || !Array.isArray(snapshot.elements)) return;
+    const sayLow = say.toLowerCase();
+    const goalLow = String(goal || '').toLowerCase();
+
+    // 1. Extract what the agent is actively recommending via action verbs.
+    //    e.g. 'Click Browse Photos' → primaryTarget = 'browse photos'
+    const actionRe = /\b(?:click|select|tap|press|use|choose|open|find|press)\s+(?:on\s+)?(?:the\s+)?['"]?([a-z][a-z\s'\-]{1,50}?)['"]?\s*(?:button|option|icon|to\b|\.(?:\s|$)|,(?:\s|$)|$)/i;
+    const actionMatch = actionRe.exec(say);
+    const primaryTarget = actionMatch ? actionMatch[1].replace(/\s+/g, ' ').trim().toLowerCase() : null;
+
+    // 2. Title-bar controls (Close/Minimize/Restore) are wrong targets for
+    //    navigation tasks. Only include them when the user specifically asked.
+    const TITLEBAR = /^(?:close|minimize|restore|maximize)$/i;
+    const wantsClosable = /\b(?:close|x button|minimize|restore)\b/i.test(goalLow);
+
+    // 3. Build candidate list: must have a rect (physical position) and a name.
+    const candidates = snapshot.elements.filter((el) => {
+      const name = String(el && el.name || '').trim();
+      if (!name || name.length < 2 || !el.rect) return false;
+      if (TITLEBAR.test(name) && !wantsClosable) return false;
+      return true;
+    });
+
+    // 4. Priority 1: element directly recommended by an action verb.
+    let mentioned = primaryTarget
+      ? candidates.find((el) => {
+          const nameLow = el.name.toLowerCase();
+          return nameLow.includes(primaryTarget) || primaryTarget.includes(nameLow);
+        })
+      : null;
+
+    // 5. Priority 2: element whose full name or a significant word appears in say.
+    //    Prefer the LONGEST name (more specific match).
+    if (!mentioned) {
+      mentioned = candidates
+        .filter((el) => {
+          const nameLow = el.name.toLowerCase();
+          if (sayLow.includes(nameLow)) return true;
+          const words = nameLow.split(/\s+/).filter((w) => w.length > 4);
+          return words.length > 0 && words.some((w) => sayLow.includes(w));
+        })
+        .sort((a, b) => b.name.length - a.name.length)[0] || null;
+    }
+
+    // 6. If asking specifically about a close/minimize target and it survived step 3:
+    if (!mentioned && wantsClosable) {
+      mentioned = snapshot.elements
+        .filter((el) => el.rect && TITLEBAR.test(String(el.name || '')))
+        .sort((a, b) => b.name.length - a.name.length)[0] || null;
+    }
+
+    if (!mentioned || !mentioned.rect) return;
+    if (d.pointAsk && typeof d.pointAsk.pointAt === 'function') {
+      await d.pointAsk.pointAt(mentioned.rect, mentioned, snapshot.window);
+    }
+  }
+
   async function doClause(clause, ctx) {
     if (ctx.signal.aborted) return false;
     if (clause.action && clause.action.type === 'cancel') { cancel(); return false; }
     let actions = clause.action ? [clause.action] : null;
     let completion = null;
+    if (d.calendar && await d.calendar.checkText(clause.text)) return true;
     if (usesClaudeRouting()) {
       // One Haiku request owns the complete request; no other model runs first.
       const m = await askModel(clause.text, ctx);
-      if (!m.ok || !m.actions) return m.ok !== false;
+      if (!m.ok || !m.actions) {
+        // Computer agent finished its own work (empty actions list): still try to auto-wand.
+        if (m.ok && m.completion && m.completion.snapshot && isNavGoal(clause.text)) {
+          autoWand(m.completion.say || '', m.completion.snapshot, clause.text).catch((e) => log(`autoWand: ${e.message}`));
+        }
+        return m.ok !== false;
+      }
       actions = m.actions;
       completion = m.completion;
     } else if (!actions) {
@@ -141,13 +250,22 @@ function createVoice(d) {
     }
     if (!actions) {
       const m = await askModel(clause.text, ctx);
-      if (!m.ok || !m.actions) return m.ok !== false;
+      if (!m.ok || !m.actions) {
+        // Computer agent finished its own work (empty actions list): still try to auto-wand.
+        if (m.ok && m.completion && m.completion.snapshot && isNavGoal(clause.text)) {
+          autoWand(m.completion.say || '', m.completion.snapshot, clause.text).catch((e) => log(`autoWand: ${e.message}`));
+        }
+        return m.ok !== false;
+      }
       actions = m.actions;
       completion = m.completion;
     }
     if (actions.some((a) => a.type === 'cancel')) { cancel(); return false; }
     const out = await runActions(actions, ctx);
     if (out.ok && !ctx.signal.aborted && completion && completion.say) showAnswer(clause.text, completion);
+    if (out.ok && !ctx.signal.aborted && completion && completion.snapshot && isNavGoal(clause.text)) {
+      autoWand(completion.say || '', completion.snapshot, clause.text).catch((e) => log(`autoWand: ${e.message}`));
+    }
     return out.ok;
   }
 

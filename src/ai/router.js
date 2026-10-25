@@ -3,13 +3,14 @@
 // request; research escalations cost two. Interactive tasks stay with the
 // selected worker while it observes and acts, without returning to A.
 
-const { anthropic, anthropicMessages } = require('./providers');
+const { anthropic, anthropicMessages, anthropicStream } = require('./providers');
 const { AiError } = require('./http');
 const { routeSystem, workerSystem } = require('./prompts');
 const { runComputerAgent } = require('./agent');
+const { pickAuto } = require('./auto');
 
 const ROLES = Object.freeze({
-  A: Object.freeze({ key: 'anthropicA', model: 'claude-haiku-5-5', effort: 'low', maxTokens: 4096, timeoutMs: 30000 }),
+  A: Object.freeze({ key: 'anthropicA', model: 'claude-haiku-5-5', effort: 'low', maxTokens: 800, timeoutMs: 30000 }),
   B: Object.freeze({ key: 'anthropicB', model: 'claude-sonnet-5-5', effort: 'medium', maxTokens: 8192, timeoutMs: 90000 }),
   C: Object.freeze({ key: 'anthropicC', model: 'claude-opus-5-5', effort: 'high', maxTokens: 16384, timeoutMs: 120000 }),
 });
@@ -33,7 +34,7 @@ function abortIfNeeded(signal) {
 
 /** One shared key, with model IDs read from the normal validated settings. */
 function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = () => {} }) {
-  return async function route(task, { system, user, goal = user, imageDataUrl, extraImages = [], signal }) {
+  return async function route(task, { system, user, goal = user, imageDataUrl, extraImages = [], signal, onChunk }) {
     const apiKey = store.getKey('anthropic');
     if (!apiKey) throw new AiError('Add an Anthropic key under Your keys to use Claude.', { provider: 'anthropic', code: 'no_key' });
     if (!['answer', 'plan', 'explain'].includes(task)) throw new AiError('That request type is not supported.', { code: 'task' });
@@ -42,7 +43,7 @@ function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = 
     const webAccess = settings.webAccess !== false;
     const timestamp = new Date().toISOString();
     let calls = 0;
-    async function callRole(role, taskSystem, format, continuation) {
+    async function callRole(role, taskSystem, format, continuation, chunkCb) {
       abortIfNeeded(signal);
       const config = ROLES[role];
       const model = models[config.key] || config.model;
@@ -51,12 +52,18 @@ function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = 
       }
       const started = Date.now();
       calls += 1;
+      // Stream only for role A plain-text replies: no format schema, no tool
+      // continuation, no web tools.  Role B/C replies stay non-streaming because
+      // they may include web-search content blocks that need the full response.
+      const useStream = Boolean(chunkCb) && !format && !continuation && role === 'A';
       try {
         const options = { apiKey, model, effort: config.effort, maxTokens: config.maxTokens, timeoutMs: config.timeoutMs,
           system: taskSystem, text: user, imageDataUrl, extraImages, format, web: !continuation && role !== 'A' && webAccess, details: true, signal, fetchImpl };
         const result = continuation
           ? await anthropicMessages({ ...options, ...continuation, timeoutMs: Math.min(config.timeoutMs, continuation.timeoutMs) })
-          : await anthropic(options);
+          : useStream
+            ? await anthropicStream({ ...options, web: false }, chunkCb)
+            : await anthropic(options);
         log(`ai task=${task} role=${role} calls=${calls} webUsed=${Boolean(result.webUsed)} elapsedMs=${Date.now() - started} status=ok`);
         return { ...result, provider: 'anthropic', role, model, calls };
       } catch (e) {
@@ -64,6 +71,26 @@ function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = 
         log(`ai task=${task} role=${role} calls=${calls} elapsedMs=${Date.now() - started} status=error`);
         throw e;
       }
+    }
+
+    // Auto matches Cursor's router: classify here, then one model answers.
+    // Turning Auto off keeps the older path, where A routes inside its first call.
+    if (settings.auto !== false) {
+      const decision = pickAuto({ task, user, goal, webAccess });
+      log(`ai auto role=${decision.role} mode=${decision.mode}`);
+      if (decision.mode === 'computer') {
+        const config = ROLES[decision.role];
+        const model = models[config.key] || config.model;
+        const result = await runComputerAgent({ controller: getComputer(), user, goal, task, model, timestamp, signal, log,
+          request: (options) => callRole(decision.role, options.system, undefined, options) });
+        return { ...result, role: decision.role, model, calls };
+      }
+      if (decision.role === 'A') {
+        // Stamp the current time so model A can answer "what day is Tuesday after?" etc.
+        const timedA = `Current UTC date and time: ${timestamp}. User time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}.\n${system}`;
+        return callRole('A', timedA, undefined, undefined, onChunk);
+      }
+      return callRole(decision.role, workerSystem(system, { webAccess, timestamp }));
     }
 
     const first = await callRole('A', routeSystem(system, task, { webAccess, timestamp }), { type: 'json_schema', schema: ROUTE_SCHEMA });
@@ -93,4 +120,4 @@ function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = 
   };
 }
 
-module.exports = { createClaudeRouter, ROLES, ROUTE_SCHEMA };
+module.exports = { createClaudeRouter, ROLES, ROUTE_SCHEMA, pickAuto };

@@ -2,9 +2,11 @@
 // The composition root: builds the pieces, wires them, and owns the
 // lifecycle. Nothing here knows how to do the real work.
 
+const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
-const { app, shell, safeStorage, nativeImage, BrowserWindow } = require('electron');
+const { app, shell, safeStorage, nativeImage, BrowserWindow, screen } = require('electron');
 const brand = require('./brand');
 
 const ROOT = path.join(__dirname, '..');
@@ -32,15 +34,51 @@ const { createJev } = require('./voice/jev');
 const { createAI } = require('./ai');
 const { createPointAsk } = require('./pointing/pointAsk');
 const capture = require('./pointing/capture');
+const { sensitiveTarget } = require('./pointing/sensitive');
+const { prepareCache } = require('./calendar/conflict');
+const { createCalendarWatch, startVisionModel } = require('./calendar/watch');
 const { createOverlay } = require('./app/overlay');
 const { createOverlayUi } = require('./app/overlayUi');
 const { createHotkeys, spoken } = require('./app/hotkeys');
 const { createPanel } = require('./app/panel');
 const { createTray } = require('./app/tray');
 const { registerIpc } = require('./app/ipc');
+const { createKnotWindow } = require('./app/knotWindow');
 
 const log = createLog(app.getPath('userData'));
 let services = null;
+const VISION_PORT = 18770;
+
+function calendarPaths() {
+  const lab = process.env.CLIPPY_LAB_ROOT || 'C:\\Users\\rithi\\OneDrive\\Documents\\AutoAnatomy\\clippy-calendar-lab';
+  return {
+    cacheFile: process.env.CLIPPY_CALENDAR_FILE || 'C:\\Users\\rithi\\.codex\\visualizations\\2026\\10\\19\\01a15501-b9fd-7720-9e84-9a7afef156cb\\clippy-calendar-lab-private\\calendar.json',
+    exe: path.join(lab, 'runtime', 'llama-cuda', 'llama-server.exe'),
+    model: path.join(lab, 'models', 'Qwen3.5-2B-Q4_K_M.gguf'),
+    mmproj: path.join(lab, 'models', 'mmproj-F16.gguf'),
+  };
+}
+
+function portBusy(port) {
+  return new Promise((resolve) => {
+    const probe = net.connect({ host: '127.0.0.1', port });
+    const done = (yes) => { probe.destroy(); resolve(yes); };
+    probe.setTimeout(400);
+    probe.once('connect', () => done(true));
+    probe.once('error', () => done(false));
+    probe.once('timeout', () => done(true));
+  });
+}
+
+async function grabCalendarFrame(sidecar, overlay) {
+  const focus = await sidecar.focused().catch(() => null);
+  if (sensitiveTarget(focus && focus.element)) return null;
+  const shot = await capture.takeDisplay(screen.dipToScreenPoint(screen.getCursorScreenPoint()), { win: overlay.win });
+  const size = shot.image.getSize();
+  const height = Math.min(640, size.height);
+  const width = Math.max(1, Math.round(size.width * height / size.height));
+  return `data:image/jpeg;base64,${shot.image.resize({ width, height }).toJPEG(72).toString('base64')}`;
+}
 
 function build() {
   const dir = app.getPath('userData');
@@ -74,11 +112,40 @@ function build() {
     return jev;
   };
 
-  voice = createVoice({ speech, ui, executor, routines, folders, ai, getJev, apps, sidecar, settings: () => store.settings(), log,
+  const voiceDeps = { speech, ui, executor, routines, folders, ai, getJev, apps, sidecar, settings: () => store.settings(), log, calendar: null,
     // End-to-end tests only: hear a WAV instead of the microphone.
-    listenFile: () => (process.env.CLIPPY_E2E === '1' ? process.env.CLIPPY_E2E_WAV : undefined) });
+    listenFile: () => (process.env.CLIPPY_E2E === '1' ? process.env.CLIPPY_E2E_WAV : undefined) };
+  voice = createVoice(voiceDeps);
   const pointAsk = createPointAsk({ sidecar, ai, overlay, ui, capture, log });
-  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, paths, getJev };
+  voiceDeps.pointAsk = pointAsk;
+  let calendarClicks = 0;
+  const calendarDeps = {
+    log, port: VISION_PORT, poll: !TEST, intervalMs: 1000, cache: null, busy: () => voice.active || voice.asking,
+    cursor: async () => { const c = await sidecar.cursor(); return { x: c.x, y: c.y, input: c.input || 0 }; },
+    clicks: () => calendarClicks,
+    capture: () => grabCalendarFrame(sidecar, overlay),
+    notice: (text, opts) => ui.notice(text, opts),
+    askIntent: async (text) => {
+      try {
+        const r = await ai.answer(`Is this message proposing a new meeting to be scheduled? Reply only "yes" or "no".\nMessage: ${String(text).slice(0, 300)}`, { signal: AbortSignal.timeout(8000) });
+        return /\byes\b/i.test(r.text.trim());
+      } catch (_) { return false; }
+    },
+    prepare: async () => {
+      const files = calendarPaths();
+      if (![files.cacheFile, files.exe, files.model, files.mmproj].every((file) => fs.existsSync(file))) {
+        log('calendar: local vision model or calendar snapshot is missing');
+        return;
+      }
+      if (await portBusy(VISION_PORT)) { log('calendar: vision port is already in use'); ui.notice('The local vision model port is already in use, so calendar conflicts are paused.', { tone: 'info' }); return; }
+      calendarDeps.cache = prepareCache(JSON.parse(fs.readFileSync(files.cacheFile, 'utf8')));
+    },
+    spawnModel: (token) => startVisionModel({ ...calendarPaths(), port: VISION_PORT, token }),
+    health: async () => { try { return (await fetch(`http://127.0.0.1:${VISION_PORT}/health`, { signal: AbortSignal.timeout(1000) })).ok; } catch (_) { return false; } },
+  };
+  const calendar = createCalendarWatch(calendarDeps);
+  voiceDeps.calendar = calendar;
+  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, noteClick: () => { calendarClicks += 1; }, paths, getJev };
 }
 
 function iconImage() {
@@ -199,9 +266,25 @@ async function boot() {
   registerHotkeys();
   if (store.settings().markHidden) overlay.hide();
 
+  // Knot companion window (built from ROUGE_BACKEND_HANDOFF.md spec) is available
+  // but not shown alongside the ribbon by default. Re-enable when the UI design
+  // is decided: remove the `false &&` to activate it.
+  if (false && !TEST && !FLAGS.shots) {
+    const knotWin = createKnotWindow({ ui, voice, log });
+    services.store.on('settings', (s) => {
+      if (s.markHidden) knotWin.win.hide(); else knotWin.win.show();
+    });
+    app.on('before-quit', () => knotWin.destroy());
+  }
+
   // ---- the slow starts, in the background -------------------------------------------
   if (!FLAGS.shots) {
     sidecar.start();
+    if (!TEST) {
+      sidecar.on('click', () => services.noteClick());
+      sidecar.watch([], true, false, 'calendar').catch(() => {});
+      services.calendar.start().catch((e) => log(`calendar: ${e.message}`));
+    }
     speech.start();
     speech.init().then((r) => { log(`speech: ${r.ok ? r.recognizer : r.error}`); push(); });
     apps.load();
@@ -221,6 +304,7 @@ app.on('window-all-closed', () => { /* the tray keeps the app running */ });
 app.on('before-quit', () => {
   if (!services) return;
   services.voice.cancel();
+  services.calendar.stop();
   services.panel.quit();
   services.sidecar.stop(); services.speech.stop();
   services.overlay.destroy();

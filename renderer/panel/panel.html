@@ -92,8 +92,9 @@
         <div class="setrow"><span><b>Start with Windows</b><small>Open quietly at sign-in so the hotkeys are ready.</small></span><button type="button" class="tg" id="tg-login" role="switch" aria-checked="false"></button></div>
         <div class="setrow"><span><b>Optional Claude Code fallback</b><small id="cc-line">A, B and C use your Anthropic key.</small></span><button type="button" class="tg" id="tg-cc" role="switch" aria-checked="false"></button></div>
         <div class="setrow"><span><b>Internet access</b><small>Claude can search and read public pages when an answer needs current information. Source links appear with the answer.</small></span><button type="button" class="tg" id="tg-web" role="switch" aria-checked="true"></button></div>
+        <div class="setrow"><span><b>Auto</b><small>Picks Haiku, Sonnet, or Opus for each request. Simple answers stay on Haiku. Live lookups and computer work use Sonnet. Hard reasoning uses Opus. One model call, not a separate router.</small></span><button type="button" class="tg" id="tg-auto" role="switch" aria-checked="true"></button></div>
         <details class="adv"><summary>Models</summary>
-          <p class="m">A answers directly or hands harder work to B or C. Only a handoff adds a second request.</p>
+          <p class="m">These are the three Claude IDs Auto chooses from. With Auto off, Haiku answers or hands the same request to Sonnet or Opus.</p>
           <label>A — Conversation and routing <input id="model-anthropic-a" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
           <label>B — Everyday work <input id="model-anthropic-b" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>
           <label>C — Deep reasoning <input id="model-anthropic-c" type="text" maxlength="80" spellcheck="false" autocomplete="off"></label>

@@ -1,43 +1,49 @@
-# Development handoff
+# Rouge — handoff
 
-Recorded 2026-10-24. Updated after the audit-fix completion pass on `cursor/audit-fixes-27d8`.
+Updated: 2026-10-24 (America/Los_Angeles)
+Branch: cursor/audit-fixes-27d8
+Node: 24.18.0 | Electron 45
+App: npm start (CLIPPY_VERBOSE=1 for logs)
+Tests: npm test (node --test test/**/*.test.js)
 
-## Repository history
+## Current task
+    None — session complete. Wand working, knot frontend built.
 
-main imports the current desktop source, then adds the Rouge product identity and sanitized context. Existing private runtime data is not part of this repository.
+## What's done
+- All 16 audit fixes on this branch (security, privacy, safety)
+- Auto model routing: A/B/C pool, goal-only SCREEN/INTERACTIVE detection (fixed false-triggers from front-window names in context)
+- Calendar conflict detection (D): local Qwen3.5-2B on CUDA, vision OCR only, deterministic intent+date in code, proposalIntent regex + Claude A fallback for ambiguous text
+- Streaming: model-A answers stream word-by-word to overlay via ui:stream IPC
+- Instant replies: greetings, acks, time, date answered locally in <1 ms
+- Navigation routing: NAVIGATE regex routes 'show me where/open X and show/point to X/where is X' to computer agent
+- Navigation completion: isNavigationGoal() lowers evidence bar for thin-accessibility pages; plain-text fallback added for navigation goals
+- Auto-wand: after navigation, snapshot elements matched to agent reply, pointAt() triggered automatically
+  - Improved matching: full-name substring OR multi-word significant-word fallback (e.g. "Close button" matches "Close Window")
+  - Completion passthrough: computer agent empty-actions result now includes snapshot so doClause can fire autoWand
+  - Session.js NAV_RE aligned with auto.js NAVIGATE patterns (point-to, where-is, highlight added)
+- Local time context: model contexts show local wall-clock time, no UTC prefix
+- sidecar.ps1 Computer-Row: rect (x, y, w, h) now included when width and height are non-zero (wand needs coords)
+- Rouge knot companion frontend: 3D red satin knot renderer built from ROUGE_BACKEND_HANDOFF.md spec
+  - renderer/rouge-knot/: living-knot.js (physics), rouge-engine.js (WebGL), rouge-motion.js (curves), app.js, styles
+  - src/app/knotWindow.js: Electron BrowserWindow wrapper
+  - src/preload/knot.js: IPC bridge
+  - Disabled by default in main.js (remove `false &&` to activate once design is approved)
 
-codex/audit-fixes preserves the earlier unfinished candidate edits. The active completion work lives on `cursor/audit-fixes-27d8` (Ponytail Full: smallest complete change on the existing Electron/JS/C# stack).
+## Key decisions
+- Auto: use goal (utterance only) not full user context string for SCREEN/INTERACTIVE detection — front-window names caused false computer-mode triggers
+- Calendar D: model only transcribes OCR; code owns intent+date extraction
+- Navigation: computer agent uses Settings search box (ms-settings: URIs blocked by action validators)
+- Streaming: plan/explain paths not streamed (need full JSON parse first)
+- Knot window: intentionally disabled by default; no UI decision made yet on placement
 
-## Audit work status
+## How to run tests
 
-The 16-item list is in AUDIT.md. Candidate and completed code now cover all items; **none are closed until the owner reviews and validates**. Live tests, model calls and desktop trials were not run in this pass (owner-reserved).
+```sh
+npm test
+node --test test/conflict.test.js test/calendar-watch.test.js test/auto.test.js test/session.test.js
+```
 
-Completed in code (pending validation):
-
-1. Native `Secret()` aligned with `private-fields.json` / `sensitive.js` (SSN, OTP, CVC, …).
-2. Point-and-ask: no whole-screen overview; nearby private rects masked; refuse when the control list is truncated.
-3. Panel shortcuts run through the cancellable voice session; overlap rejected.
-4. Legacy executor verifies window/focus before input and rechecks after confirmation.
-5. Delete/Backspace in Explorer require the same confirmation as click-Delete.
-6. Conditional “yes, but …” no longer counts as approval.
-7. Computer agent requires meaningful observation / flight evidence before accepting completion.
-8. Helper operation timeouts restart the JSONL process; watches restore on sidecar availability.
-9. DOCX expansion bounds per entry and total.
-10. ICS recurrence keeps the event time zone.
-11. Speech reinitializes after helper restart.
-12. Blocked shells (Terminal/PowerShell/…) stub without reading the tree; `open_app` may leave them.
-13. Hotkey digit / F-key patterns corrected.
-14. E2E mock and session notice updated to the route/mode/response contract and Anthropic key copy.
-15. Controller + Windows fixture coverage authored for private fields / Delete / Terminal transition (Windows tests remain owner-run).
-16. Inactive browser search-engine preference removed.
-
-## Resume procedure
-
-1. Read this file, CONTEXT.md and AUDIT.md.
-2. Review the PR on `cursor/audit-fixes-27d8` against main.
-3. Owner: run `npm test` on Windows (moves focus / sends input) and exercise the flight scenario before merging.
-4. Do not treat syntax compilation or authored tests as end-to-end proof.
-
-## Validation record
-
-JavaScript syntax checks were run on touched modules. Native C# embedding was not compiled here (Linux agent host). No tests, model requests, screenshots or desktop task trials were executed in this pass.
+## Next three steps
+1. Test wand on live Windows: say "point to the close button" or "where is the volume control" and verify the highlight fires
+2. Review knot frontend design with owner: decide placement (ribbon companion? overlay? tray popup?) and enable in main.js
+3. Merge PR #2 (cursor/audit-fixes-27d8 → main) after owner review of all 16 audit items

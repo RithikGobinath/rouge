@@ -34,6 +34,10 @@ function createOverlayUi({ overlay }) {
     transcript: (text, o = {}) => overlay.send('ui:transcript', { text: String(text || ''), final: Boolean(o.final) }),
     level(v) { const t = Date.now(); if (t - levelAt < 33) return; levelAt = t; overlay.send('ui:level', Number(v) || 0); },
     say: (text, o = {}) => overlay.send('ui:say', { text: String(text || ''), kicker: o.kicker || '', sources: (o.sources || []).slice(0, 12) }),
+    /** Send growing accumulated text to the overlay while a stream is in progress.
+     *  The caller must pass the full accumulated string each time (not a delta).
+     *  The final say() call replaces this with the completed bubble. */
+    streamChunk: (text) => overlay.send('ui:stream', { text: String(text || '') }),
     notice: (text, o = {}) => { if (text) overlay.send('ui:notice', { text: String(text), tone: o.tone || 'info' }); },
     speak: (text) => overlay.send('ui:speak', { text: String(text || '').slice(0, 600) }),
 

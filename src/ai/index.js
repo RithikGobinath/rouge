@@ -23,9 +23,9 @@ function createAI({ store, folders, claudeCode, fetchImpl, getComputer, log = ()
   const call = { fetchImpl };
   const route = createClaudeRouter({ store, fetchImpl, getComputer, log });
 
-  async function text(task, { system, user, goal, json, maxTokens, signal }) {
+  async function text(task, { system, user, goal, json, maxTokens, signal, onChunk }) {
     const k = keys();
-    if (k.anthropic) return route(task, { system, user, goal, signal });
+    if (k.anthropic) return route(task, { system, user, goal, signal, onChunk });
     if (k.gemini) return { text: await gemini({ apiKey: k.gemini, model: model('gemini'), system, text: user, json, maxTokens, signal, ...call }), provider: 'gemini' };
     if (store.settings().useClaudeCode && await cc.available()) return { text: await cc.ask({ prompt: `${system}\n\n${user}` }), provider: 'claude-code' };
     throw new AiError(NEED_KEY, { code: 'no_key' });
@@ -46,11 +46,11 @@ function createAI({ store, folders, claudeCode, fetchImpl, getComputer, log = ()
      * A spoken or typed request for an answer or some writing.
      * @returns {Promise<{text:string, sources:object[], provider:string}>}
      */
-    async answer(question, { history = [], signal } = {}) {
+    async answer(question, { history = [], signal, onChunk } = {}) {
       const ctx = folders ? folders.context(question) : { text: '', sources: [] };
       const recent = history.slice(-6).map((h) => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.text}`).join('\n');
       const user = [ctx.text, recent && `Earlier in this chat:\n${recent}`, `User: ${question}`].filter(Boolean).join('\n\n');
-      const r = await text('answer', { system: prompts.ANSWER, user, maxTokens: 700, signal });
+      const r = await text('answer', { system: typeof prompts.ANSWER === 'function' ? prompts.ANSWER() : prompts.ANSWER, user, maxTokens: 700, signal, onChunk });
       return { text: r.text, sources: [...(r.sources || []), ...(ctx.sources || [])].slice(0, 12), provider: r.provider, role: r.role, model: r.model, calls: r.calls, webUsed: Boolean(r.webUsed) };
     },
 
@@ -72,7 +72,7 @@ function createAI({ store, folders, claudeCode, fetchImpl, getComputer, log = ()
       if (v.errors.length) throw new AiError('The request included unsupported actions, so I stopped before running it.', { provider: r.provider, code: 'plan' });
       const say = typeof obj.say === 'string' ? obj.say.trim().slice(0, 24000) : '';
       if (!say && !v.actions.length) throw new AiError('The request returned no answer or supported actions. Please try again.', { provider: r.provider, code: 'empty_plan' });
-      return { say, actions: v.actions, dropped: 0, provider: r.provider, sources: [...(r.sources || []), ...(ctx.sources || [])].slice(0, 12), role: r.role, model: r.model, calls: r.calls, webUsed: Boolean(r.webUsed), computerUsed: Boolean(r.computerUsed) };
+      return { say, actions: v.actions, dropped: 0, provider: r.provider, sources: [...(r.sources || []), ...(ctx.sources || [])].slice(0, 12), role: r.role, model: r.model, calls: r.calls, webUsed: Boolean(r.webUsed), computerUsed: Boolean(r.computerUsed), ...(r.snapshot ? { snapshot: r.snapshot } : {}) };
     },
 
     /**
