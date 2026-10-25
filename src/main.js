@@ -45,9 +45,8 @@ const { createTray } = require('./app/tray');
 const { registerIpc } = require('./app/ipc');
 const { createKnotWindow } = require('./app/knotWindow');
 const profile = require('./profile');
-const { createDetector } = require('./autofill/detector');
+const { createBridge } = require('./autofill/bridge');
 const { createAutofill } = require('./autofill/index');
-const { createExecutor: createAutofillExecutor } = require('./autofill/executor');
 
 const log = createLog(app.getPath('userData'));
 let services = null;
@@ -153,31 +152,18 @@ function build() {
   voiceDeps.profile = profile;    // voice session checks for profile-update utterances
 
   // Autofill: form detector + fill orchestrator.
-  const autofill = createAutofill({
-    profile, voice, ai, log,
-    ui: { review: (p) => ui.review(p), notice: (t, o) => ui.notice(t, o) },
-  });
-
-  // Screenshot helper reused from calendar: hides the overlay and compresses to JPEG.
-  const autofillCapture = async () => {
-    const at = screen.dipToScreenPoint(screen.getCursorScreenPoint());
-    const shot = await capture.takeDisplay(at, { win: overlay.win });
-    const sz = shot.image.getSize();
-    const h = Math.min(800, sz.height);
-    const w = Math.max(1, Math.round(sz.width * h / sz.height));
-    return `data:image/jpeg;base64,${shot.image.resize({ width: w, height: h }).toJPEG(72).toString('base64')}`;
-  };
-
-  const detector = createDetector({
-    sidecar, ai, capture: autofillCapture,
-    busy: () => voice.active || voice.asking,
+  const bridge = createBridge({
     log,
     onFormDetected: (formInfo) => {
       autofill.offer(formInfo).catch((e) => log(`autofill.offer: ${e.message}`));
     },
   });
+  const autofill = createAutofill({
+    profile, voice, ai, bridge, log,
+    ui: { review: (p) => ui.review(p), notice: (t, o) => ui.notice(t, o) },
+  });
 
-  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, detector, autofill, noteClick: () => { calendarClicks += 1; }, paths, getJev };
+  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, bridge, autofill, noteClick: () => { calendarClicks += 1; }, paths, getJev };
 }
 
 function iconImage() {
@@ -298,8 +284,8 @@ async function boot() {
   registerHotkeys();
   if (store.settings().markHidden) overlay.hide();
 
-  // Start the form detector (polls every 2 s when sidecar is available).
-  if (!TEST) services.detector.start();
+  // Start the extension bridge server.
+  if (!TEST) services.bridge.start();
 
   // Knot companion window (built from ROUGE_BACKEND_HANDOFF.md spec) is available
   // but not shown alongside the ribbon by default. Re-enable when the UI design

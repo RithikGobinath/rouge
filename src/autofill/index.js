@@ -1,92 +1,85 @@
 'use strict';
 // src/autofill/index.js
-// Orchestrates the full autofill flow for one detected form:
+// Orchestrates the autofill flow triggered by the Chrome extension:
 //
-//   1. "Fill it?" ask card  (existing overlay mechanism)
-//   2. Load profile, call Model A to produce a fill plan [{label, value}]
-//   3. Per-field confirmation overlay  (new autofill:review / autofill:confirm IPC)
-//   4. Execute confirmed fields via the UIA executor
+//   1. Extension sends form fields via bridge POST /api/form
+//   2. "Fill it?" ask card on the ribbon
+//   3. Load profile → call Model A for field → value mapping
+//   4. Per-field confirmation card on the ribbon
+//   5. Bridge resolves the pending poll → extension fills the DOM
 //
-// No phase-4 planner (deterministic label mapper) — skipped by design.
+// All UI is in the Rouge overlay. The extension has no UI of its own.
 
-/**
- * Extract the first JSON array from a freeform model response.
- * Strips markdown fences, uses a greedy match so nested objects are preserved.
- * Returns [] if the response contains no valid JSON array.
- * @param {string} text
- * @returns {Array}
- */
+const JSON_ARRAY_RE = { start: '[', end: ']' };
+
 function parsePlan(text) {
-  let s = String(text || '');
-  // Strip markdown code fences (```json ... ``` or ``` ... ```)
-  s = s.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
-  // Greedy match: from first '[' to last ']' so nested objects aren't cut off.
+  let s = String(text || '').replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
   const start = s.indexOf('[');
   const end = s.lastIndexOf(']');
   if (start === -1 || end === -1 || end < start) return [];
   try {
     const parsed = JSON.parse(s.slice(start, end + 1));
     return Array.isArray(parsed) ? parsed : [];
-  } catch (_) {
-    return [];
-  }
+  } catch (_) { return []; }
 }
 
 /**
  * @param {{
- *   profile: { profileForAutofill: () => object },
- *   voice:   { ask: (card:object) => Promise<boolean>, runText: (cmd:string) => Promise<boolean> },
- *   ai:      { answer: (q:string, opts?:object) => Promise<{text:string}> },
- *   ui:      { review: (payload:object) => Promise<Array|null>, notice: (t:string, o:object) => void },
- *   log?:    Function,
+ *   profile:  { profileForAutofill: () => object },
+ *   voice:    { ask: (card:object) => Promise<boolean> },
+ *   ai:       { answer: (q:string, opts?:object) => Promise<{text:string}> },
+ *   ui:       { review: (payload:object) => Promise<Array|null>, notice: (t:string, o:object) => void },
+ *   bridge:   { sendFill: (id:string, plan:Array) => void, cancel: (id:string) => void },
+ *   log?:     Function,
  * }} deps
  */
-function createAutofill({ profile, voice, ai, ui, log }) {
+function createAutofill({ profile, voice, ai, ui, bridge, log }) {
   const _log = log || (() => {});
 
   /**
-   * Run the autofill flow for a detected form.
-   * @param {{ hwnd:number, windowTitle:string, fields:object[] }} formInfo
-   * @returns {Promise<{filled:number}>}
+   * Handle a form detected by the extension.
+   * @param {{ id:string, url:string, title:string, fields:object[] }} formInfo
    */
   async function offer(formInfo) {
-    // 1. Ask the user.
+    const { id, title, fields } = formInfo;
+
+    // 1. "Fill it?" ask card.
     const yes = await voice.ask({
       kicker: 'Form detected',
       title: 'Fill it?',
-      hint: formInfo.windowTitle || '',
+      hint: title || formInfo.url || '',
     });
-    if (!yes) return { filled: 0 };
+    if (!yes) { bridge.cancel(id); return; }
 
-    // 2. Load profile and build a fill plan via Model A.
+    // 2. Load profile.
     let rawProfile;
     try { rawProfile = profile.profileForAutofill(); } catch (e) {
       ui.notice('Your profile could not be loaded.', { tone: 'error' });
-      return { filled: 0 };
+      bridge.cancel(id); return;
     }
 
-    const fieldSchema = (formInfo.fields || [])
-      .filter((f) => f.label)
-      .map((f) => ({ label: f.label, type: f.type || 'text' }));
+    // 3. Build field schema from extension-reported fields (already labelled from DOM).
+    const fieldSchema = (fields || [])
+      .filter((f) => f.label && f.label.trim())
+      .map((f) => ({ label: f.label.trim(), type: f.type || 'text', selector: f.selector || '' }));
 
     _log(`autofill: fieldSchema (${fieldSchema.length}): ${JSON.stringify(fieldSchema)}`);
 
     if (!fieldSchema.length) {
       ui.notice('No labelled fields were found in the form.', { tone: 'info' });
-      return { filled: 0 };
+      bridge.cancel(id); return;
     }
 
+    // 4. Ask Model A (Haiku) to map fields → profile values.
     let plan = [];
     try {
-      // Use a highly directive prompt with an inline example so Haiku returns only JSON.
-      // The ANSWER system prompt is conversational, so we must be very explicit.
-      const eg = JSON.stringify([{ label: 'Email', value: 'user@example.com' }, { label: 'Full name', value: 'Jane Doe' }]);
+      const eg = JSON.stringify([{ label: 'Email', value: 'user@example.com', selector: '#email' }]);
       const prompt = [
         'TASK: map form fields to profile values. OUTPUT: a JSON array only — no prose, no explanation, no markdown.',
         `EXAMPLE OUTPUT: ${eg}`,
-        'Rules: omit any field with no confident match; never invent data; preserve exact label strings.',
+        'Rules: omit any field with no confident match; never invent data; preserve exact label and selector strings.',
         '',
-        `FORM FIELDS: ${JSON.stringify(fieldSchema)}`,
+        `FORM FIELDS: ${JSON.stringify(fieldSchema.map((f) => ({ label: f.label, type: f.type })))}`,
         `PROFILE: ${JSON.stringify(rawProfile)}`,
         '',
         'JSON array output:',
@@ -98,46 +91,35 @@ function createAutofill({ profile, voice, ai, ui, log }) {
       plan = parsePlan(result.text);
       _log(`autofill: parsed plan (${plan.length} entries): ${JSON.stringify(plan)}`);
       plan = plan.filter((e) => e && typeof e.label === 'string' && typeof e.value === 'string' && e.value.trim());
+
+      // Re-attach selectors from fieldSchema by label match.
+      plan = plan.map((e) => {
+        const match = fieldSchema.find((f) => f.label.toLowerCase() === e.label.toLowerCase());
+        return { ...e, selector: e.selector || (match && match.selector) || '' };
+      });
     } catch (e) {
       _log(`autofill: AI plan failed: ${e.message}`);
       ui.notice('Could not build a fill plan. Please try again.', { tone: 'error' });
-      return { filled: 0 };
+      bridge.cancel(id); return;
     }
 
     if (!plan.length) {
       ui.notice('No fields could be matched to your profile.', { tone: 'info' });
-      return { filled: 0 };
+      bridge.cancel(id); return;
     }
 
-    // 3. Per-field confirmation overlay.
+    // 5. Per-field confirmation card.
     let accepted;
-    try {
-      accepted = await ui.review({ fields: plan });
-    } catch (e) {
+    try { accepted = await ui.review({ fields: plan }); } catch (e) {
       _log(`autofill: review error: ${e.message}`);
-      return { filled: 0 };
+      bridge.cancel(id); return;
     }
-    if (!accepted || !accepted.length) return { filled: 0 };   // user cancelled or deselected all
+    if (!accepted || !accepted.length) { bridge.cancel(id); return; }
 
-    // 4. Delegate to the computer agent (Model B) via voice.runText.
-    // The computer agent already knows how to activate Chrome's accessibility tree
-    // and fill form fields — it is the proven path. Our custom executor is not needed.
-    try {
-      const fieldList = accepted.map((f) => `- ${f.label}: ${f.value}`).join('\n');
-      const cmd = [
-        `Use the browser on screen to fill these form fields. Match each field by its visible label.`,
-        `Do NOT click Submit, Continue, or Next.\n`,
-        fieldList,
-      ].join('\n');
-      _log(`autofill: sending fill command to computer agent:\n${cmd}`);
-      voice.runText(cmd).catch((e) => _log(`autofill: runText: ${e.message}`));
-      ui.notice(`Filling ${accepted.length} field${accepted.length !== 1 ? 's' : ''}…`, { tone: 'info' });
-      return { filled: accepted.length };
-    } catch (e) {
-      _log(`autofill: fill command error: ${e.message}`);
-      ui.notice('Fill did not complete. Please try again.', { tone: 'error' });
-      return { filled: 0 };
-    }
+    // 6. Send fill plan back to extension — resolves the pending poll.
+    _log(`autofill: sending ${accepted.length} field(s) to extension`);
+    bridge.sendFill(id, accepted);
+    ui.notice(`Filling ${accepted.length} field${accepted.length !== 1 ? 's' : ''}…`, { tone: 'info' });
   }
 
   return { offer };
