@@ -1,0 +1,374 @@
+/* companion.css — brand tokens, companion layout, popup styling, bob */
+
+/* ---- Color tokens (light / dark) ---------------------------------------- */
+:root {
+  --surface:        #fff9fb;
+  --surface-raised: #ffffff;
+  --text:           #34232c;
+  --text2:          #765f6c;
+  --accent:         #a52c4f;
+  --on-accent:      #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface:        #302a30;
+    --surface-raised: #3b323a;
+    --text:           #f9eef3;
+    --text2:          #c5abb8;
+    --accent:         #ff9eb6;
+    --on-accent:      #431122;
+  }
+}
+@media (prefers-reduced-transparency) {
+  :root { --surface: #f0e4ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface: #1e1a1e; }
+  }
+}
+
+/* ---- Layer order --------------------------------------------------------- */
+/* tool-panel: 20, thread canvas: 22, wand-label: 24, chat-panel: 26, knot: 27, toast: 41 */
+
+/* ---- Canvas / thread layer ----------------------------------------------- */
+#thread {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 22;
+}
+
+/* ---- Knot button --------------------------------------------------------- */
+#knot {
+  position: fixed;
+  width: 76px; height: 76px;
+  padding: 0;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  z-index: 27;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#knot:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Drawing canvas sits centered in the button, 104×104 */
+#knot-canvas {
+  display: block;
+  width: 104px; height: 104px;
+  margin: -14px;   /* (104-76)/2 = 14px overflow for the ribbon glow */
+  pointer-events: none;
+  /* Bob translate via CSS variable */
+  translate: var(--bob-x, 0px) var(--bob-y, 0px);
+  will-change: translate;
+}
+@media (max-width: 400px) {
+  #knot { width: 70px; height: 70px; }
+  #knot-canvas { width: 98px; height: 98px; margin: -14px; }
+}
+
+/* ---- Chat panel ---------------------------------------------------------- */
+#chat-panel {
+  position: fixed;
+  width: 340px;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.10);
+  z-index: 26;
+  padding: 10px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+@media (max-width: 380px) {
+  #chat-panel { width: calc(100vw - 24px); }
+}
+
+/* Transcript */
+#chat-transcript {
+  font-size: 12px;
+  color: var(--text2);
+  min-height: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* Reply tray */
+#reply-tray {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.reply-text {
+  font-size: 13px;
+  color: var(--text);
+}
+.reply-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.reply-action-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.reply-action-btn:hover { opacity: 0.88; }
+
+/* Nav row */
+.chat-nav {
+  display: flex;
+  gap: 4px;
+}
+.nav-btn {
+  background: var(--surface-raised);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 15px;
+  line-height: 1;
+  min-width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav-btn:hover { background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised)); }
+.nav-btn.active { background: var(--accent); color: var(--on-accent); }
+
+/* Input row */
+.chat-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 44px;
+}
+#chat-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+#chat-submit {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+#chat-submit:hover { opacity: 0.88; }
+
+/* ---- Tool panel ---------------------------------------------------------- */
+#tool-panel {
+  position: fixed;
+  background: var(--surface-raised);
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.16), 0 1px 4px rgba(0,0,0,0.10);
+  z-index: 20;
+  overflow: hidden;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  position: sticky; top: 0;
+  background: var(--surface-raised);
+  z-index: 1;
+}
+.tool-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.tool-action {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  color: var(--accent);
+}
+.tool-action:hover { opacity: 0.80; }
+
+/* ---- Tasks --------------------------------------------------------------- */
+.task-list { padding: 4px 0; }
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 7%, transparent);
+}
+.task-row:last-child { border-bottom: none; }
+.task-row.done .task-title { text-decoration: line-through; color: var(--text2); }
+.task-title {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-due {
+  font-size: 11px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.icon-btn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+  color: var(--text2);
+  flex-shrink: 0;
+}
+.icon-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.task-del:hover { color: #c0392b; }
+
+.task-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  padding: 8px 12px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.empty-state {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text2);
+  font-size: 12px;
+}
+
+/* Guide highlight */
+.guide-highlight {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 4px;
+}
+
+/* ---- Email --------------------------------------------------------------- */
+.email-form {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+.email-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.email-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  width: 46px;
+  flex-shrink: 0;
+}
+.email-input {
+  flex: 1;
+  height: 30px;
+  min-width: 0;
+  font-size: 13px;
+}
+.email-details-toggle {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  color: var(--text2);
+  font-size: 16px;
+}
+.email-details-toggle:hover { color: var(--accent); }
+
+/* Email details popup — absolute inside email tool, never adds rows to parent */
+.email-details-popup {
+  position: absolute;
+  top: 39px; left: 8px; right: 8px;
+  background: var(--surface-raised);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+  padding: 8px 10px;
+  z-index: 1;
+  max-width: 272px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.email-details-close {
+  align-self: flex-end;
+  color: var(--text2);
+}
+
+.email-body {
+  min-height: 80px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.45;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.email-send-row {
+  display: flex;
+  justify-content: flex-end;
+}
+.send-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 32px; height: 32px;
+  display: flex; align-items: center;
+}
+.send-btn:hover { opacity: 0.88; }
+
+/* ---- Wand label ---------------------------------------------------------- */
+#wand-label {
+  position: fixed;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-width: 220px;
+  z-index: 24;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Toast --------------------------------------------------------------- */
+.toast {
+  position: fixed;
+  bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--text) 90%, transparent);
+  color: var(--surface);
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  z-index: 41;
+  pointer-events: none;
+  max-width: 320px;
+  text-align: center;
+}
+
+/* ---- Bob translate (knot canvas only) ------------------------------------ */
+#knot canvas {
+  translate: var(--bob-x, 0px) var(--bob-y, 0px);
+}
+@media (prefers-reduced-motion: reduce) {
+  #knot canvas { translate: 0px 0px; }
+}

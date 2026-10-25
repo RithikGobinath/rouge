@@ -43,6 +43,7 @@ const { createHotkeys, spoken } = require('./app/hotkeys');
 const { createPanel } = require('./app/panel');
 const { createTray } = require('./app/tray');
 const { registerIpc } = require('./app/ipc');
+const { createKnotWindow } = require('./app/knotWindow');
 
 const log = createLog(app.getPath('userData'));
 let services = null;
@@ -264,6 +265,17 @@ async function boot() {
   overlay.create();
   registerHotkeys();
   if (store.settings().markHidden) overlay.hide();
+
+  // Knot companion window (built from ROUGE_BACKEND_HANDOFF.md spec) is available
+  // but not shown alongside the ribbon by default. Re-enable when the UI design
+  // is decided: remove the `false &&` to activate it.
+  if (false && !TEST && !FLAGS.shots) {
+    const knotWin = createKnotWindow({ ui, voice, log });
+    services.store.on('settings', (s) => {
+      if (s.markHidden) knotWin.win.hide(); else knotWin.win.show();
+    });
+    app.on('before-quit', () => knotWin.destroy());
+  }
 
   // ---- the slow starts, in the background -------------------------------------------
   if (!FLAGS.shots) {
