@@ -21,7 +21,8 @@ const ocrSchema = {
 function createCalendarWatch(deps) {
   const log = deps.log || (() => {});
   const intervalMs = deps.intervalMs || 1000;
-  const pollMs = deps.pollMs || 100;
+  // Whether the pointer moved needs asking only a few times a second; a shot is taken at most once a second anyway.
+  const pollMs = deps.pollMs || 250;
   let stopped = false;
   let ready = false;
   let child = null;
@@ -155,7 +156,15 @@ function createCalendarWatch(deps) {
       if (!ready) { log('calendar: vision model did not become ready'); return; }
     }
     log('calendar: watching for meeting conflicts');
-    if (deps.poll !== false) timer = setInterval(() => { tick().catch((e) => log(`calendar: ${e.message}`)); }, pollMs);
+    if (deps.poll !== false) {
+      // One question at a time: while the helper is busy (a long window walk), asking again only queues more of them.
+      let asking = false;
+      timer = setInterval(() => {
+        if (asking) return;
+        asking = true;
+        tick().catch((e) => log(`calendar: ${e.message}`)).finally(() => { asking = false; });
+      }, pollMs);
+    }
   }
 
   function stop() {
