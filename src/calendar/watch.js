@@ -175,4 +175,71 @@ function startVisionModel({ exe, model, mmproj, port, token, spawnImpl = spawn }
   ], { windowsHide: true, stdio: 'ignore' });
 }
 
-module.exports = { createCalendarWatch, startVisionModel, ocrSchema };
+// Common form field names used to detect application/sign-up/contact forms.
+const FORM_FIELD_RE = /\b(?:name|email|first|last|phone|address|city|state|zip|company|linkedin|github|website|school|university|degree|position|title)\b/i;
+const FORM_COOLDOWN = 60_000;
+
+/**
+ * Detects whether a UIA element list looks like a fillable form.
+ * A form: ≥3 Edit controls, OR ≥2 Edit controls with field names matching FORM_FIELD_RE.
+ * @param {object[]} elements - UIA elements returned by sidecar.uiaList()
+ * @param {{title:string}} win - foreground window (for windowTitle)
+ * @returns {{ isForm:true, fields:{name:string,ref:number,type:string}[], windowTitle:string }|null}
+ */
+function detectForm(elements, win) {
+  const edits = (elements || []).filter((el) => el.type === 'Edit');
+  const namedEdits = edits.filter((el) => FORM_FIELD_RE.test(String(el.name || '')));
+  if (edits.length < 3 && namedEdits.length < 2) return null;
+  const fields = edits.map((el) => ({ name: el.name || '', ref: el.id, type: el.type }));
+  return { isForm: true, fields, windowTitle: (win && win.title) || '' };
+}
+
+/**
+ * Polls the foreground window for form controls and calls deps.onFormDetected
+ * when a fillable form is found, with a 60-second per-window cooldown.
+ *
+ * deps: { sidecar, log, busy, onFormDetected, pollMs? }
+ */
+function createFormWatcher(deps) {
+  const log = deps.log || (() => {});
+  const pollMs = deps.pollMs || 2000;
+  let stopped = false;
+  let timer = null;
+  let lastFgHwnd = 0;
+  const cooldowns = new Map(); // hwnd → timestamp of last notification
+
+  async function tick() {
+    if (stopped) return;
+    if (deps.busy && deps.busy()) return;
+    let fg;
+    try { fg = await deps.sidecar.fg(); } catch (_) { return; }
+    const hwnd = fg && fg.hwnd;
+    if (!hwnd || hwnd === lastFgHwnd) return;
+    lastFgHwnd = hwnd;
+    let result;
+    try { result = await deps.sidecar.uiaList(hwnd, 100); } catch (_) { return; }
+    const elements = (result && result.elements) || [];
+    const formInfo = detectForm(elements, fg);
+    if (!formInfo) return;
+    const now = Date.now();
+    const lastAt = cooldowns.get(hwnd) || -Infinity;
+    if (now - lastAt < FORM_COOLDOWN) return;
+    cooldowns.set(hwnd, now);
+    if (deps.onFormDetected) deps.onFormDetected(formInfo);
+  }
+
+  function start() {
+    if (timer) return;
+    timer = setInterval(() => { tick().catch((e) => log(`formWatcher: ${e.message}`)); }, pollMs);
+  }
+
+  function stop() {
+    stopped = true;
+    clearInterval(timer);
+    timer = null;
+  }
+
+  return { start, stop, tick, detectForm };
+}
+
+module.exports = { createCalendarWatch, createFormWatcher, detectForm, startVisionModel, ocrSchema };

@@ -36,7 +36,9 @@ const { createPointAsk } = require('./pointing/pointAsk');
 const capture = require('./pointing/capture');
 const { sensitiveTarget } = require('./pointing/sensitive');
 const { prepareCache } = require('./calendar/conflict');
-const { createCalendarWatch, startVisionModel } = require('./calendar/watch');
+const { createCalendarWatch, createFormWatcher, startVisionModel } = require('./calendar/watch');
+const { createAutofill } = require('./autofill/index');
+const profile = require('./profile');
 const { createOverlay } = require('./app/overlay');
 const { createOverlayUi } = require('./app/overlayUi');
 const { createHotkeys, spoken } = require('./app/hotkeys');
@@ -118,6 +120,7 @@ function build() {
   voice = createVoice(voiceDeps);
   const pointAsk = createPointAsk({ sidecar, ai, overlay, ui, capture, log });
   voiceDeps.pointAsk = pointAsk;
+  voiceDeps.profile = profile;
   let calendarClicks = 0;
   const calendarDeps = {
     log, port: VISION_PORT, poll: !TEST, intervalMs: 1000, cache: null, busy: () => voice.active || voice.asking,
@@ -145,7 +148,18 @@ function build() {
   };
   const calendar = createCalendarWatch(calendarDeps);
   voiceDeps.calendar = calendar;
-  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, noteClick: () => { calendarClicks += 1; }, paths, getJev };
+
+  const formWatcher = createFormWatcher({
+    sidecar, log,
+    busy: () => voice.active || voice.asking,
+    pollMs: 2000,
+    onFormDetected: (formInfo) => {
+      const autofill = createAutofill({ profile, voice, log });
+      autofill.fill(formInfo).catch((e) => log(`autofill: ${e.message}`));
+    },
+  });
+
+  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, formWatcher, noteClick: () => { calendarClicks += 1; }, paths, getJev };
 }
 
 function iconImage() {
@@ -284,6 +298,7 @@ async function boot() {
       sidecar.on('click', () => services.noteClick());
       sidecar.watch([], true, false, 'calendar').catch(() => {});
       services.calendar.start().catch((e) => log(`calendar: ${e.message}`));
+      services.formWatcher.start();
     }
     speech.start();
     speech.init().then((r) => { log(`speech: ${r.ok ? r.recognizer : r.error}`); push(); });
@@ -305,6 +320,7 @@ app.on('before-quit', () => {
   if (!services) return;
   services.voice.cancel();
   services.calendar.stop();
+  services.formWatcher.stop();
   services.panel.quit();
   services.sidecar.stop(); services.speech.stop();
   services.overlay.destroy();

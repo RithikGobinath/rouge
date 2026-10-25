@@ -102,6 +102,25 @@ function createVoice(d) {
         return instantReply(`Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`);
       }
 
+      // Profile update: "my email is X", "I moved to Seattle", "update my phone", etc.
+      const PROFILE_UPDATE = /\b(?:my|i(?:'m| am)|update|change|set)\b.{0,60}\b(?:email|phone|name|location|address|linkedin|github|website|school|university|company|title|position)\b.{0,80}/i;
+      if (PROFILE_UPDATE.test(text) && d.profile) {
+        const profile = d.profile.loadProfile();
+        const reply = await d.ai.answer(
+          `The user said: "${text}". Extract any profile field updates from this. The current profile is: ${JSON.stringify(profile.personal)}. Reply with JSON only: {"updates": {"field": "newValue"}} or {"updates": {}} if nothing changed. Fields: name, email, phone, location, linkedin, github, website.`,
+          { signal: ctx.signal },
+        );
+        try {
+          const parsed = JSON.parse(reply.text.match(/\{[\s\S]*\}/)?.[0] || '{}');
+          if (parsed.updates && Object.keys(parsed.updates).length > 0) {
+            d.profile.updateProfile({ personal: { ...profile.personal, ...parsed.updates } });
+            const updated = Object.entries(parsed.updates).map(([k, v]) => `${k}: ${v}`).join(', ');
+            d.ui.say(`Got it! Updated your profile: ${updated}.`, { sources: [] });
+            return { ok: true, said: true };
+          }
+        } catch (_) { /* fall through to normal routing */ }
+      }
+
       const CONVERSATIONAL = /^(?:hi|hello|hey|thanks|thank(?:\s+you)?|ok|okay|sure|great|cool|nice|got it|sounds good|awesome|perfect|yep|nope|wow|lol)\b/i;
       if (QUESTION_START.test(text) || CONVERSATIONAL.test(text)) {
         // Stream word-by-word into the bubble as chunks arrive.  The accumulated
