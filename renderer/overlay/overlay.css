@@ -16,12 +16,12 @@ body.shots { background: var(--shots-bg, transparent); }
 .hidden { display: none !important; }
 button { font: inherit; color: inherit; }
 
-#strand-layer { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 7; }
+#strand-layer { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 8; }
 #clock-highlight { position: fixed; pointer-events: none; z-index: 7; outline: 2px solid var(--red); outline-offset: 2px; border-radius: 4px; }
 
 /* Paper: the one surface every card, bubble and pill is made of. */
 .gl {
-  position: fixed; z-index: 8;
+  position: fixed; z-index: 9;
   background: var(--paper); color: var(--ink);
   border: 1px solid var(--line); border-radius: 14px;
   box-shadow: var(--lift);
@@ -108,7 +108,7 @@ body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
 .mark-dock.catching, .strip-slot.catching { box-shadow: 0 0 0 3px var(--red), 0 0 0 9px var(--wash); }
 
 /* Keep the whole opaque message card above the wand, including during its arrival. */
-.meeting-reminder { z-index: 8; width: min(220px, calc(100vw - 24px)); padding: 10px 12px; border-radius: 10px; }
+.meeting-reminder { z-index: 9; width: min(220px, calc(100vw - 24px)); padding: 10px 12px; border-radius: 10px; }
 .meeting-reminder .t { white-space: pre-line; overflow-wrap: anywhere; font-size: 13px; line-height: 1.3; }
 .meeting-reminder .h { margin-top: 2px; }
 .meeting-reminder .a { margin-top: 6px; }

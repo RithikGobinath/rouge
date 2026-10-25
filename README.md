@@ -33,6 +33,11 @@ Type `stop` or click the wand's Close button to retract it. Known control
 rectangles supplied by the computer agent also highlight without vision;
 the explicit point-and-ask hotkey still uses its existing visual explanation.
 
+When the wand points at something, the upper curve of the ribbon unwinds from the knot and winds twice around the
+target, with the last lap lying tight against it. It stays for 4 seconds plus about 55 ms per character of the
+explanation shown with it (at most 15 seconds), then draws back in. If the pointed-at control moves because its
+window scrolls, the wand follows it.
+
 Meeting reminders read the existing local `calendar.json` and alert 15 minutes
 before timed events, extending the wand to a flowing underline at the computer's current-time clock. They
 also work in Mac development mode without any model. See

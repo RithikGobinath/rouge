@@ -349,3 +349,85 @@ test('autoWand matches multi-word element name by its significant word', async (
   assert.equal(pointAtCalls.length, 1, 'autoWand matched on significant word from multi-word name');
   assert.equal(pointAtCalls[0], 'Close Window');
 });
+
+// A reply that merely mentions the browser must not send the wand to the browser's own button.
+function wandRig(t, say, elements, goal, window = { title: 'Flights - Google Chrome', process: 'chrome.exe' }) {
+  const picked = [];
+  const pointAsk = { pointAt: async (rect, el) => { picked.push(el.name); } };
+  const ai = { canAnswer: () => true, usesClaudeRouting: () => true, plan: async () => ({ say, actions: [], snapshot: { elements, window }, computerUsed: true }) };
+  const { voice } = rig(t, { ai, pointAsk });
+  return { picked, run: () => voice.runText(goal) };
+}
+const box = { x: 1400, y: 46, w: 40, h: 34 };
+
+test('autoWand does not point at the browser menu button just because the reply mentions Chrome', async (t) => {
+  const { picked, run } = wandRig(t, 'I opened Chrome and found the cheapest flight, 609 dollars with Delta.', [{ name: 'Chrome', type: 'Button', rect: box }], 'find me the cheapest flight to Madison');
+  await run();
+  assert.deepEqual(picked, []);
+});
+
+test('autoWand still points at the flight when the reply describes it', async (t) => {
+  const card = 'From 609 US dollars. 1 stop flight with Delta. Leaves San Francisco at 6:05 AM.';
+  const { picked, run } = wandRig(t, 'The cheapest is the Delta flight from 609 dollars, leaving at 6:05 AM.', [{ name: 'Chrome', type: 'Button', rect: box }, { name: card, type: 'Group', rect: { x: 200, y: 800, w: 1000, h: 70 } }], 'find me the cheapest flight to Madison');
+  await run();
+  assert.deepEqual(picked, [card]);
+});
+
+test('autoWand ignores a one-word control that is only mentioned in passing', async (t) => {
+  const { picked, run } = wandRig(t, 'Your Settings are saved and the page is ready.', [{ name: 'Settings', type: 'Button', rect: box }], 'show me where to save the page');
+  await run();
+  assert.deepEqual(picked, []);
+});
+
+test('autoWand points at a one-word control when the reply tells you to click it', async (t) => {
+  const { picked, run } = wandRig(t, 'Click Settings to change it.', [{ name: 'Settings', type: 'Button', rect: box }], 'show me where to change this');
+  await run();
+  assert.deepEqual(picked, ['Settings']);
+});
+
+test('autoWand points at the browser button when you asked about the browser itself', async (t) => {
+  const { picked, run } = wandRig(t, 'Click Chrome to open its menu.', [{ name: 'Chrome', type: 'Button', rect: box }], 'show me the Chrome menu');
+  await run();
+  assert.deepEqual(picked, ['Chrome']);
+});
+
+test('autoWand picks the card that shares the most details with the reply, not just the longest name', async (t) => {
+  const cheap = 'From 609 US dollars. 1 stop flight with Delta. Leaves 6:05 AM.';
+  const long = 'From 842 US dollars. Nonstop flight with United Airlines operated by SkyWest. Leaves 9:40 AM and arrives 3:10 PM. Total duration 5 hr 30 min.';
+  const { picked, run } = wandRig(t, 'The cheapest flight is 609 dollars with Delta, leaving at 6:05 AM.', [
+    { name: long, type: 'Group', rect: { x: 200, y: 600, w: 1000, h: 70 } },
+    { name: cheap, type: 'Group', rect: { x: 200, y: 800, w: 1000, h: 70 } },
+  ], 'find me the cheapest flight to Madison');
+  await run();
+  assert.deepEqual(picked, [cheap]);
+});
+
+test('autoWand uses a price in the reply to pick the right card even when the words are shared', async (t) => {
+  const a = 'From 609 US dollars. 1 stop flight with Delta.';
+  const b = 'From 842 US dollars. 1 stop flight with Delta.';
+  const { picked, run } = wandRig(t, 'The best price is 842 dollars.', [
+    { name: a, type: 'Group', rect: { x: 200, y: 600, w: 1000, h: 70 } },
+    { name: b, type: 'Group', rect: { x: 200, y: 800, w: 1000, h: 70 } },
+  ], 'find me the cheapest flight to Madison');
+  await run();
+  assert.deepEqual(picked, [b]);
+});
+
+test('autoWand points at the whole flight, not at a small piece of text that the reply happens to quote', async (t) => {
+  const card = 'From 604 US dollars. 1 stop flight with United. Leaves San Francisco International Airport at 6:05 AM. Total duration 6 hr 38 min.';
+  const { picked, run } = wandRig(t, 'The cheapest option is the United flight at $604. It leaves San Francisco at 6:05 AM. Total duration 6 hr 38 min.', [
+    { name: '6 hr 38 min', type: 'Text', rect: { x: 590, y: 483, w: 81, h: 20 } },
+    { name: '6:05 AM', type: 'Text', rect: { x: 300, y: 483, w: 60, h: 20 } },
+    { name: card, type: 'Group', rect: { x: 200, y: 440, w: 1000, h: 110 } },
+  ], 'find me the cheapest flight to Madison');
+  await run();
+  assert.deepEqual(picked, [card]);
+});
+
+test('autoWand does not point at a lone fragment such as a duration when nothing better is on the page', async (t) => {
+  const { picked, run } = wandRig(t, 'The cheapest option is the United flight at $604. Total duration 6 hr 38 min.', [
+    { name: '6 hr 38 min', type: 'Text', rect: { x: 590, y: 483, w: 81, h: 20 } },
+  ], 'find me the cheapest flight to Madison');
+  await run();
+  assert.deepEqual(picked, []);
+});

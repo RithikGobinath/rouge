@@ -17,10 +17,12 @@
 
 const { sensitiveTarget } = require('./sensitive');
 const { positionTarget } = require('./positions');
+const { findTracked } = require('./track');
 
 const SNAPSHOT_MS = 120000;
 const SPOT = 56;                 // the box drawn around "your spot", in screen pixels at 100%
 const MAX_AREA = 0.4;            // a "control" this large is a window, not what was pointed at
+const TRACK_MAX_MS = 45000;      // the longest a control is watched: the wand holds for at most 15 s, so this is only a backstop
 
 /**
  * @typedef {Object} PointDeps
@@ -178,6 +180,8 @@ function createPointAsk(d) {
       this.close();
       highlight(d.overlay.physToOverlay(rect), element && element.name ? element.name : 'At that control');
       const session = cur;
+      // What the tracker compares against: where the wand first went, and where it last pointed.
+      session._trackFirst = rect; session._trackPhys = rect; session._trackRect = d.overlay.physToOverlay(rect);
       try {
         // Element-tracking: self-scheduling poll (no overlap, ≥150 ms gap) that keeps
         // the highlight pinned as the user scrolls.  Targets the exact hwnd.
@@ -185,6 +189,7 @@ function createPointAsk(d) {
         const trackHwnd = hwnd || (win && win.hwnd);
         let tracking = true;
         let trackFails = 0;
+        const trackUntil = now() + TRACK_MAX_MS;
         const stopTracking = () => {
           tracking = false;
           if (cur && cur.id === session.id) { cur.ac.abort(); cur = null; d.overlay.send('point:clear', {}); }
@@ -192,6 +197,7 @@ function createPointAsk(d) {
         if (trackName && trackHwnd && d.sidecar && typeof d.sidecar.computerSnapshot === 'function') {
           const track = async () => {
             if (!tracking || !cur || cur.id !== session.id) return;
+            if (now() > trackUntil) { tracking = false; return; }
             const t0 = Date.now();
             let freshSnapshotId = null;
             try {
@@ -203,11 +209,7 @@ function createPointAsk(d) {
               if (fresh && fresh.snapshot) {
                 freshSnapshotId = fresh.snapshot.snapshotId;
                 const elements = fresh.snapshot.elements || [];
-                const nameLow = trackName.toLowerCase();
-                const match = elements.find(el => {
-                  const n = String(el && el.name || '').toLowerCase();
-                  return n && (n === nameLow || n.includes(nameLow) || nameLow.includes(n));
-                });
+                const match = findTracked(elements, { name: trackName, automationId: element && element.automationId }, session._trackPhys, session._trackFirst);
                 if (match && match.rect) {
                   // Only send a new target if the element moved more than 4 CSS px.
                   // Sending setTarget on every tick restarts the strand blend animation
@@ -218,8 +220,9 @@ function createPointAsk(d) {
                     Math.abs(next.x - prev.x) > 4 || Math.abs(next.y - prev.y) > 4 ||
                     Math.abs(next.w - prev.w) > 4 || Math.abs(next.h - prev.h) > 4;
                   if (moved) {
-                    session._trackRect = next;
-                    d.overlay.send('point:target', { rect: next, label: trackName });
+                    session._trackRect = next; session._trackPhys = match.rect;
+                    // `follow`: the same target moved, so the wand glides over to it instead of starting its cycle again.
+                    d.overlay.send('point:target', { rect: next, label: trackName, follow: true });
                   }
                 }
               }
@@ -239,7 +242,7 @@ function createPointAsk(d) {
           setTimeout(track, 0);
           session.ac.signal.addEventListener('abort', () => { tracking = false; });
         }
-        const offFg = trackHwnd && d.sidecar && typeof d.sidecar.on === 'function'
+        let offFg = trackHwnd && d.sidecar && typeof d.sidecar.on === 'function'
           ? d.sidecar.on('fg', (ev) => {
               if (!cur || cur.id !== session.id) return;
               // hwnd 0 means nothing took focus (window was closed with no successor).
@@ -250,7 +253,9 @@ function createPointAsk(d) {
               }
             })
           : null;
-        if (offFg) session.ac.signal.addEventListener('abort', () => offFg());
+        if (offFg) session.ac.signal.addEventListener('abort', () => { if (offFg) offFg(); });
+        // The wand has drawn back in: stop reading the window and listening for focus changes. The answer, and "Ask more", stay.
+        session.release = () => { tracking = false; if (offFg) { offFg(); offFg = null; } };
         return true;
       } catch (e) {
         log(`pointAt: ${e.message}`);
@@ -268,6 +273,9 @@ function createPointAsk(d) {
       await ask(cur, q);
       return true;
     },
+
+    /** The wand has retracted: stop following the control it pointed at (the session and its answer stay). */
+    release() { if (cur && cur.release) cur.release(); },
 
     close() {
       if (cur) { cur.ac.abort(); cur = null; }

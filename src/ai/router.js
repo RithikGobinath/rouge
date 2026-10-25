@@ -64,7 +64,10 @@ function createClaudeRouter({ store, fetchImpl, getComputer = () => null, log = 
           : useStream
             ? await anthropicStream({ ...options, web: false }, chunkCb)
             : await anthropic(options);
-        log(`ai task=${task} role=${role} calls=${calls} webUsed=${Boolean(result.webUsed)} elapsedMs=${Date.now() - started} status=ok`);
+        const usage = result.usage || {};
+        const thought = Array.isArray(result.content) ? result.content.filter((b) => b && b.type === 'thinking').length : 0;
+        log(`ai task=${task} role=${role} calls=${calls} webUsed=${Boolean(result.webUsed)} elapsedMs=${Date.now() - started} status=ok`
+          + (usage.output_tokens != null ? ` out=${usage.output_tokens} in=${usage.input_tokens} thinkingBlocks=${thought}` : ''));
         return { ...result, provider: 'anthropic', role, model, calls };
       } catch (e) {
         // Never log prompts, images, response bodies, keys, or raw provider errors.

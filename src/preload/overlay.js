@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('overlayApi', {
   sendText: (text) => ipcRenderer.send('overlay:text', String(text || '').slice(0, 600)),
   pointFollowUp: (text) => ipcRenderer.send('overlay:point:more', String(text || '').slice(0, 1000)),
   pointClose: () => ipcRenderer.send('overlay:point:close'),
+  pointRetracted: () => ipcRenderer.send('overlay:point:retracted'),
   // A dropped file becomes a path here, in the preload; the page only learns whether it had one.
   shelfHold: (file) => {
     let found = '';

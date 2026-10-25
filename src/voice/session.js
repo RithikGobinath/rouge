@@ -178,12 +178,17 @@ function createVoice(d) {
     //    navigation tasks. Only include them when the user specifically asked.
     const TITLEBAR = /^(?:close|minimize|restore|maximize)$/i;
     const wantsClosable = /\b(?:close|x button|minimize|restore)\b/i.test(goalLow);
+    // The window's own name (Chrome's menu button is simply called "Chrome") is a label for the app, not what the answer is about.
+    const app = String(snapshot.window && snapshot.window.process || '').replace(/\.exe$/i, '').toLowerCase();
+    const APP_LABEL = /^(?:google chrome|chrome|microsoft edge|edge|firefox|mozilla firefox|brave|opera|vivaldi)$/;
+    const isAppLabel = (name) => { const n = name.trim().toLowerCase(); return APP_LABEL.test(n) || (app && n === app); };
 
     // 3. Build candidate list: must have a rect (physical position) and a name.
     const candidates = snapshot.elements.filter((el) => {
       const name = String(el && el.name || '').trim();
       if (!name || name.length < 2 || !el.rect) return false;
       if (TITLEBAR.test(name) && !wantsClosable) return false;
+      if (isAppLabel(name) && !goalLow.includes(name.trim().toLowerCase())) return false;
       return true;
     });
 
@@ -195,17 +200,25 @@ function createVoice(d) {
         })
       : null;
 
-    // 5. Priority 2: element whose full name or a significant word appears in say.
-    //    Prefer the LONGEST name (more specific match).
+    // 5. Priority 2: element whose full name or significant details (words, prices, times) appear in say.
+    //    Prefer the element sharing the MOST details with the reply (the card quoting "$609 ... 6:05 AM", not any card
+    //    that says "flight"); on a tie the longer, more specific name wins.
     if (!mentioned) {
-      mentioned = candidates
-        .filter((el) => {
+      const details = (text) => text.split(/\s+/).map((w) => w.replace(/^[^a-z0-9$]+|[^a-z0-9]+$/g, '')).filter((w) => w.length > 4 || (w.length >= 3 && /\d/.test(w)));
+      const ranked = candidates
+        .map((el) => {
           const nameLow = el.name.toLowerCase();
-          if (sayLow.includes(nameLow)) return true;
-          const words = nameLow.split(/\s+/).filter((w) => w.length > 4);
-          return words.length > 0 && words.some((w) => sayLow.includes(w));
+          if (!/\s/.test(nameLow.trim())) return null;   // one word: only when the reply says to click it
+          // A name with nothing specific in it ("6 hr 38 min", "Sign in") says too little to be what the reply is about.
+          const own = [...new Set(details(nameLow))];
+          if (!own.length) return null;
+          const shared = own.filter((w) => sayLow.includes(w));
+          // Details in common decide it; quoting the whole name is a small extra, not a trump card.
+          return shared.length ? { el, score: shared.length + (sayLow.includes(nameLow) ? 1 : 0) } : null;
         })
-        .sort((a, b) => b.name.length - a.name.length)[0] || null;
+        .filter(Boolean)
+        .sort((x, y) => y.score - x.score || y.el.name.length - x.el.name.length);
+      mentioned = ranked.length ? ranked[0].el : null;
     }
 
     // 6. If asking specifically about a close/minimize target and it survived step 3:
