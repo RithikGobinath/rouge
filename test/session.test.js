@@ -309,3 +309,43 @@ test('hearing nothing says so', async (t) => {
   await voice.begin(); await voice.release();
   assert.ok(ui.ev.some((e) => e[0] === 'notice' && /did not catch/.test(e[1])));
 });
+
+test('autoWand fires after a computer navigation task (empty actions list)', async (t) => {
+  // Regression: computer agent returns actions:[] so askModel returned {ok,said} with no completion,
+  // causing doClause to return early before the autoWand check was reached.
+  const pointAtCalls = [];
+  const pointAsk = { pointAt: async (rect, el, win) => { pointAtCalls.push({ rect, el, win }); } };
+  const snapshot = {
+    elements: [{ name: 'Close', type: 'Button', rect: { x: 1300, y: 10, w: 50, h: 30 } }],
+    window: { title: 'My App' },
+  };
+  const ai = {
+    canAnswer: () => true, usesClaudeRouting: () => true,
+    plan: async () => ({ say: 'Click the Close button in the top-right corner.', actions: [], snapshot, computerUsed: true }),
+  };
+  const { voice } = rig(t, { ai, pointAsk });
+  await voice.runText('show me where to close the current window');
+  assert.equal(pointAtCalls.length, 1, 'autoWand fired after computer navigation');
+  assert.equal(pointAtCalls[0].el.name, 'Close');
+  assert.deepEqual(pointAtCalls[0].rect, { x: 1300, y: 10, w: 50, h: 30 });
+  assert.equal(pointAtCalls[0].win.title, 'My App');
+});
+
+test('autoWand matches multi-word element name by its significant word', async (t) => {
+  // The agent says "Close button" but the element is named "Close Window"; the
+  // fallback word-level match should still find it.
+  const pointAtCalls = [];
+  const pointAsk = { pointAt: async (rect, el) => { pointAtCalls.push(el.name); } };
+  const snapshot = {
+    elements: [{ name: 'Close Window', type: 'Button', rect: { x: 1300, y: 10, w: 50, h: 30 } }],
+    window: { title: 'My App' },
+  };
+  const ai = {
+    canAnswer: () => true, usesClaudeRouting: () => true,
+    plan: async () => ({ say: 'Use the Close button at the top right to dismiss the window.', actions: [], snapshot, computerUsed: true }),
+  };
+  const { voice } = rig(t, { ai, pointAsk });
+  await voice.runText('show me where to close the current window');
+  assert.equal(pointAtCalls.length, 1, 'autoWand matched on significant word from multi-word name');
+  assert.equal(pointAtCalls[0], 'Close Window');
+});

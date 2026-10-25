@@ -130,7 +130,9 @@ function createVoice(d) {
       if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
       if (plan.actions.length) return { ok: true, actions: plan.actions, completion: plan };
       if (plan.say) showAnswer(text, plan);
-      return { ok: true, said: true };
+      // Return completion so doClause can fire autoWand even when the computer agent
+      // did all work itself and left an empty actions list (navigation tasks).
+      return { ok: true, said: true, completion: plan };
     } catch (e) {
       if (ctx.signal && ctx.signal.aborted) return { ok: false, cancelled: true };
       d.ui.notice(e.message || 'That did not work.', { tone: 'error' });
@@ -156,15 +158,24 @@ function createVoice(d) {
     return out;
   }
 
-  /** Mirror of isNavigationGoal in agent.js — relaxed gate for UWP pages. */
-  const isNavGoal = (text) => /\b(?:show\s+me\s+where|navigate\s+to|go\s+to|open\b.{0,80}\band\s+(?:show|find|navigate))\b/i.test(String(text || ''));
+  /** Same NAVIGATE patterns as auto.js — anything that routes to computer B for navigation. */
+  const NAV_RE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to|the)\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b|\bpoint\s+(?:to|at)\b|\bwhere\s+is\s+(?:the\s+)?\b|\bhighlight\b/i;
+  const isNavGoal = (text) => NAV_RE.test(String(text || ''));
 
   /** After a navigation task completes, visually highlight the control mentioned in the agent's reply. */
   async function autoWand(say, snapshot, goal) {
     if (!snapshot || !Array.isArray(snapshot.elements)) return;
+    const sayLow = say.toLowerCase();
     const mentioned = snapshot.elements.find((el) => {
       const name = String(el && el.name || '').trim();
-      return name.length > 3 && say.toLowerCase().includes(name.toLowerCase());
+      if (!name) return false;
+      const nameLow = name.toLowerCase();
+      // Full-name substring: element name (2+ chars) appears verbatim in the reply (case-insensitive).
+      if (name.length > 1 && sayLow.includes(nameLow)) return true;
+      // Multi-word name fallback: any significant word (>3 chars) from the name appears in say.
+      // Handles cases like element "Close Window" when agent says "click the Close button".
+      const words = nameLow.split(/\s+/).filter((w) => w.length > 3);
+      return words.length > 0 && words.some((w) => sayLow.includes(w));
     });
     if (!mentioned || !mentioned.rect) return;
     if (d.pointAsk && typeof d.pointAsk.pointAt === 'function') {
@@ -181,7 +192,13 @@ function createVoice(d) {
     if (usesClaudeRouting()) {
       // One Haiku request owns the complete request; no other model runs first.
       const m = await askModel(clause.text, ctx);
-      if (!m.ok || !m.actions) return m.ok !== false;
+      if (!m.ok || !m.actions) {
+        // Computer agent finished its own work (empty actions list): still try to auto-wand.
+        if (m.ok && m.completion && m.completion.snapshot && isNavGoal(clause.text)) {
+          autoWand(m.completion.say || '', m.completion.snapshot, clause.text).catch((e) => log(`autoWand: ${e.message}`));
+        }
+        return m.ok !== false;
+      }
       actions = m.actions;
       completion = m.completion;
     } else if (!actions) {
@@ -195,7 +212,13 @@ function createVoice(d) {
     }
     if (!actions) {
       const m = await askModel(clause.text, ctx);
-      if (!m.ok || !m.actions) return m.ok !== false;
+      if (!m.ok || !m.actions) {
+        // Computer agent finished its own work (empty actions list): still try to auto-wand.
+        if (m.ok && m.completion && m.completion.snapshot && isNavGoal(clause.text)) {
+          autoWand(m.completion.say || '', m.completion.snapshot, clause.text).catch((e) => log(`autoWand: ${e.message}`));
+        }
+        return m.ok !== false;
+      }
       actions = m.actions;
       completion = m.completion;
     }
