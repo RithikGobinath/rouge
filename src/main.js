@@ -159,8 +159,19 @@ function build() {
     ui: { review: (p) => ui.review(p), notice: (t, o) => ui.notice(t, o) },
     executor: autofillExecutor,
   });
+
+  // Screenshot helper reused from calendar: hides the overlay and compresses to JPEG.
+  const autofillCapture = async () => {
+    const at = screen.dipToScreenPoint(screen.getCursorScreenPoint());
+    const shot = await capture.takeDisplay(at, { win: overlay.win });
+    const sz = shot.image.getSize();
+    const h = Math.min(800, sz.height);
+    const w = Math.max(1, Math.round(sz.width * h / sz.height));
+    return `data:image/jpeg;base64,${shot.image.resize({ width: w, height: h }).toJPEG(72).toString('base64')}`;
+  };
+
   const detector = createDetector({
-    sidecar,
+    sidecar, ai, capture: autofillCapture,
     busy: () => voice.active || voice.asking,
     log,
     onFormDetected: (formInfo) => {
