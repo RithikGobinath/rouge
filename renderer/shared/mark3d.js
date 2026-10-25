@@ -103,6 +103,7 @@
   };
 
   function mount(canvas, opts = {}) {
+    if (window.RougeWand && !opts.simple) return window.RougeWand.mountMark(canvas, opts);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     let size = opts.scale || 0.2;                      // radius of the knot, as a share of the canvas

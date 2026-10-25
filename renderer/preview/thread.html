@@ -12,13 +12,31 @@
     .doc .err { margin: 90px 26px 0; padding: 10px 12px; border-radius: 7px; background: rgba(217,75,67,.12); border: 1px solid rgba(217,75,67,.35); color: #f0b3ae; font-size: 13px; width: 62%; }
     #box { position: fixed; right: 8px; bottom: 8px; width: 96px; height: 96px; --mark-accent: #90A5FF; }
     #box canvas { position: absolute; left: 50%; top: 50%; width: 156px; height: 156px; transform: translate(-50%, -50%); }
+    .wand-tools, .wand-target { display: none; }
+    body.wand-dev { background: #191a1b; color: #f8f8f8; }
+    .wand-dev .doc { display: none; }
+    .wand-dev .wand-tools { display: flex; position: fixed; left: 16px; top: 16px; right: 16px; gap: 8px; flex-wrap: wrap; align-items: center; z-index: 8; }
+    .wand-tools input, .wand-tools button { font: inherit; padding: 8px 12px; border: 1px solid #666; border-radius: 8px; background: #262728; color: #fff; }
+    .wand-tools input { width: 150px; }
+    .wand-dev .wand-target { display: grid; place-items: center; position: fixed; padding: 12px; background: #303132; border-radius: 8px; font: 15px system-ui,sans-serif; }
+    #wand-a { left: 10%; top: 25%; } #wand-b { left: 65%; top: 22%; }
+    #wand-c { left: 20%; top: 65%; } #wand-d { left: 65%; top: 60%; }
   </style>
 </head>
 <body>
+  <form class="wand-tools" id="wand-commands">
+    <label for="wand-command">Wand</label><input id="wand-command" placeholder="point to A" autocomplete="off" aria-label="Wand command">
+    <button type="submit">Go</button><button type="button" data-target="a">A</button><button type="button" data-target="b">B</button><button type="button" data-target="c">C</button><button type="button" data-target="d">D</button><button type="button" id="wand-retract">Retract</button>
+    <span id="wand-status" role="status" aria-live="polite">Ready</span>
+  </form>
+  <div class="wand-target" id="wand-a">A · Browse photos</div><div class="wand-target" id="wand-b">B · Search</div><div class="wand-target" id="wand-c">C · Share</div><div class="wand-target" id="wand-d">D · Export</div>
   <div class="doc"><div class="bar">report-draft.docx</div><div class="err" id="err">Error: the linked file was not found</div></div>
   <canvas id="strand"></canvas>
   <div id="box"><canvas id="mark"></canvas></div>
   <script src="../shared/ribbon.js"></script>
+  <script src="../shared/wand-geometry.js"></script>
+  <script src="../shared/wand-art.js"></script>
+  <script src="../shared/wand.js"></script>
   <script src="../shared/mark3d.js"></script>
   <script src="../shared/strand.js"></script>
   <script src="thread.js"></script>

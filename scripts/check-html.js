@@ -19,6 +19,7 @@ app.whenReady().then(async () => {
   const errors = [];
   win.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 3) errors.push(e.message); });
   await win.loadFile(file);
+  await win.webContents.executeJavaScript('window.RougeWandArt.ready.then(() => true)');
   fs.mkdirSync(path.join(root, 'shots'), { recursive: true });
 
   const run = (js) => win.webContents.executeJavaScript(js);
@@ -57,15 +58,15 @@ app.whenReady().then(async () => {
 
   await clickOn('#b-export');
   check('clicking it is acknowledged', (await toastText()) === 'Exported.', await toastText());
-  await sleep(850);
+  await sleep(1650);
   check('the ribbon has drawn back in', (await isIn()) && (await tagText()) === '', `${await ribbonPixels()} px, tag "${await tagText()}"`);
   await shot('2-drawn-back');
   await sleep(2000);
   check('then it goes out to the next place', (await isOut()) && (await tagText()) === 'Share', `tag "${await tagText()}"`);
 
-  await clickOn('#b-share'); await sleep(3000);
+  await clickOn('#b-share'); await sleep(3800);
   check('and the one after', (await isOut()) && (await tagText()) === 'Save', `tag "${await tagText()}"`);
-  await clickOn('#b-save'); await sleep(1500);
+  await clickOn('#b-save'); await sleep(1650);
   check('after the last one it draws back in and stays in', await isIn(), `${await ribbonPixels()} px`);
   await sleep(2500);
   check('and it is still in later', await isIn(), `${await ribbonPixels()} px`);
@@ -77,11 +78,11 @@ app.whenReady().then(async () => {
   check('and it draws itself back in if nobody follows', await isIn(), `${await ribbonPixels()} px`);
 
   await click(930, 330); await sleep(2200);
-  await click(930, 330); await sleep(1300);
+  await click(930, 330); await sleep(1650);
   check('clicking the place it points at draws it back in', await isIn(), `${await ribbonPixels()} px`);
 
   await click(700, 520); await sleep(2200);
-  await clickOn('#mark'); await sleep(1400);
+  await clickOn('#mark'); await sleep(1650);
   check('clicking the ribbon draws it back in', await isIn(), `${await ribbonPixels()} px`);
   await sleep(2200);
   check('and it stays in', await isIn(), `${await ribbonPixels()} px`);

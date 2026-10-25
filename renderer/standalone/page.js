@@ -13,12 +13,11 @@
     { el: $('#b-share'), label: 'Share', said: 'Shared.' },
     { el: $('#b-save'), label: 'Save', said: 'Saved.' },
   ];
-  const DWELL_MS = 2600;     // a spot the person clicked is held this long, then drawn back in
   const PAUSE_MS = 600;      // between the ribbon being back in and the next one going out
   let at = -1;               // the step the ribbon is out to; -1 when it is out to a spot, or in
   let reaching = null;       // what it is out to: { box, text }
   let after = null;          // what to do once it is back in
-  let dwell = 0; let toastTimer = 0;
+  let toastTimer = 0;
 
   /** Turn the mark so its open end points at the middle of the page, from whichever corner it sits in. */
   function aimMark() {
@@ -58,7 +57,6 @@
   }
 
   function reachFor(box, text, step) {
-    clearTimeout(dwell);
     at = step; reaching = { box, text };
     tag.classList.add('hidden');
     mark.setState('reading');
@@ -75,7 +73,6 @@
 
   /** Draw the ribbon back into the mark; `next`, if there is one, runs once it is in. */
   function retract(next) {
-    clearTimeout(dwell);
     after = next || null;
     tag.classList.add('hidden');
     if (thread.getState() === 'idle') rewound(); else thread.rewind();
@@ -83,10 +80,8 @@
 
   function arrived() {
     mark.setState('ready'); placeTag();
-    if (at < 0) { clearTimeout(dwell); dwell = setTimeout(() => retract(), DWELL_MS); }      // nobody is being walked anywhere: let it go back
   }
   function rewound() {
-    clearTimeout(dwell);
     reaching = null; at = -1; tag.classList.add('hidden'); mark.setState('idle');
     const next = after; after = null;
     if (next) setTimeout(next, PAUSE_MS);
@@ -113,5 +108,5 @@
 
   aimMark();
   requestAnimationFrame(aimMark);
-  setTimeout(() => goTo(0), 900);
+  mark.ready.then(value => { if (value) setTimeout(() => { if (thread.getState() === 'idle') goTo(0); }, 900); });
 })();

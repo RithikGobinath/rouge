@@ -121,6 +121,7 @@
   }
 
   function mount(canvas, mark, opts = {}) {
+    if (window.RougeWand && mark && mark.design === 'upper-u') return window.RougeWand.mountStrand(canvas, mark, opts);
     const ctx = canvas.getContext('2d');
     if (!ctx || !mark) return null;
     const callback = (fn) => (typeof fn === 'function' ? fn : () => {});

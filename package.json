@@ -13,7 +13,8 @@
     "smoke": "electron . --smoke",
     "shots": "electron . --shots",
     "icons": "electron scripts/make-icons.js",
-    "preview": "electron scripts/preview-thread.js"
+    "preview": "electron scripts/preview-thread.js",
+    "wand": "electron scripts/preview-thread.js --interactive"
   },
   "dependencies": {
     "fflate": "^0.8.3",

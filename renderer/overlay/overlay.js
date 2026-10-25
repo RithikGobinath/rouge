@@ -31,7 +31,12 @@
     if (mark) mark.setState('ready');
     if (pendingBubble) { showBubble(pendingBubble); pendingBubble = null; }
   }
-  function onRewound() { pointing = false; els.strip.classList.remove('free'); if (els.bubble.dataset.anchor === 'tip') hideBubble(); render(); }
+  function onRewound() {
+    pointing = false; els.strip.classList.remove('free');
+    if (pendingBubble) { const answer = pendingBubble; pendingBubble = null; showBubble({ ...answer, anchor: 'mark' }); }
+    else if (els.bubble.dataset.anchor === 'tip') { cancelAnimationFrame(bubbleRaf); els.bubble.dataset.anchor = 'mark'; }
+    render();
+  }
 
   /** Turn the ribbon so the tail it lets out points at the middle of the screen, from any corner. */
   function aimMark() {
@@ -256,6 +261,7 @@
     els.strip.classList.toggle('hidden', !settings.strip);
     (settings.strip ? els.slot : els.dock).appendChild(els.canvas);
     if (mark) { mark.setScale(settings.strip ? 0.167 : 0.2); if (settings.markHidden) mark.pause(); else mark.resume(); }
+    if (settings.markHidden && strand && strand.cancel) strand.cancel();
     render();
     requestAnimationFrame(() => { aimMark(); if (strand) strand.relayout(); layout(); });
   }
@@ -301,11 +307,12 @@
   function pointAt(rect) {
     pointing = true; hideBubble();
     els.strip.classList.add('free');                     // the thread leaves the strip: let it out of the bar
-    if (strand) strand.setTarget(rect);
+    if (strand && strand.setTarget(rect) === false) { pointing = false; els.strip.classList.remove('free'); render(); return; }
     if (mark) mark.setState('reading');
   }
   bridge.on('point:target', (m) => pointAt(m.rect));
   bridge.on('point:bubble', (b) => {
+    if (!pointing) { showBubble({ ...b, anchor: 'mark' }); return; }
     if (b.pending) { showBubble({ ...b, anchor: 'tip' }); return; }
     if (strand && strand.getState() === 'pointing') showBubble(b); else pendingBubble = b;
   });

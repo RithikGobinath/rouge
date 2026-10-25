@@ -1,13 +1,17 @@
 # Rouge — handoff
 
-Updated: 2026-10-24 (America/Los_Angeles)
-Branch: cursor/audit-fixes-27d8
+Updated: 2026-10-25 (America/Los_Angeles)
+Branch: codex/ribbon-unravel-orbit
 Node: 24.18.0 | Electron 45
 App: npm start (CLIPPY_VERBOSE=1 for logs)
 Tests: npm test (node --test test/**/*.test.js)
 
 ## Current task
-    None — session complete. Wand working, knot frontend built.
+Wand design implementation on `codex/ribbon-unravel-orbit`: upper-U release, fixed base, connected open orbit, 1.5s out / 2s hold / 1.5s return. The live overlay, thread preview and standalone export share this renderer. Text inside the target rectangle is protected from ribbon paint. Retargeting replaces the active cycle; Escape/close can retract early. Answers that arrive after retraction appear beside the knot instead of getting stuck waiting for an arrival callback.
+
+Development: `npm run wand`, then `point to A` / `B` / `C` / `D`. This is an isolated window with fixed local targets and no model requests. The original snapshot scripts still require explicit owner authorization before running.
+
+Validation: syntax and standalone build only. Geometry and mocked lifecycle regression checks are authored in `test/wand-geometry.test.js` and `test/wand.test.js`, not executed. The owner must run them and check live Windows placement, click-through, reduced motion and retargeting. No audit finding is closed by this visual change. The separate knot companion window remains disabled.
 
 ## What's done
 - All 16 audit fixes on this branch (security, privacy, safety)

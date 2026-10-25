@@ -12,7 +12,9 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const safe = (js) => js.replace(/<\/script/gi, '<\\/script');
 
 let page = read('renderer/standalone/page.html');
-const parts = { MATERIAL: 'renderer/shared/ribbon.js', MARK: 'renderer/shared/mark3d.js', STRAND: 'renderer/shared/strand.js', PAGE: 'renderer/standalone/page.js' };
+const assets = Object.fromEntries(['closed.jpg', 'material.jpg', 'base.jpg'].map(name => [name, 'data:image/jpeg;base64,' + fs.readFileSync(path.join(root, 'renderer/shared/wand-assets', name)).toString('base64')]));
+page = page.replace('/*WAND_ASSETS*/', () => `window.RougeWandAssets=${JSON.stringify(assets)};`);
+const parts = { MATERIAL: 'renderer/shared/ribbon.js', WAND_GEOMETRY: 'renderer/shared/wand-geometry.js', WAND_ART: 'renderer/shared/wand-art.js', WAND: 'renderer/shared/wand.js', MARK: 'renderer/shared/mark3d.js', STRAND: 'renderer/shared/strand.js', PAGE: 'renderer/standalone/page.js' };
 for (const [name, file] of Object.entries(parts)) {
   const marker = `/*${name}*/`;
   if (!page.includes(marker)) throw new Error(`the page has no ${marker}`);
