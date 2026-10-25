@@ -117,3 +117,23 @@ test('Delete in Explorer asks first, matching click Delete', async () => {
   assert.match(asked[0].hint, /deletes/);
   session.close();
 });
+
+test('F5 reloads a page that opened blank or stuck, and other reload chords stay out of reach', async () => {
+  const actions = [];
+  const sidecar = {
+    fg: async () => ({ hwnd: 11, process: 'chrome' }),
+    computerSnapshot: async () => ({ ok: true, snapshot: { snapshotId: `snapshot-${actions.length + 1}`, window: { hwnd: 11, process: 'chrome' }, text: '', elements: [] } }),
+    computerDescribe: async () => ({ ok: true, element: null }),
+    computerAction: async (id, action) => { actions.push(action); return { ok: true }; },
+    computerRelease: async () => ({ ok: true }),
+  };
+  const session = createComputerController({ sidecar, executor: {}, ui: {} }).createSession({});
+  const first = await session.runTool('computer_inspect', {});
+  const reload = await session.runTool('computer_act', { snapshotId: first.snapshot.snapshotId, actions: [{ type: 'key', keys: ['f5'] }] });
+  assert.equal(reload.ok, true);
+  assert.deepEqual(actions, [{ type: 'key', vks: [0x74] }]);
+  const other = await session.runTool('computer_act', { snapshotId: reload.snapshot.snapshotId, actions: [{ type: 'key', keys: ['ctrl', 'r'] }] });
+  assert.equal(other.error.code, 'invalid_input');
+  assert.equal(actions.length, 1, 'nothing was sent for the refused chord');
+  session.close();
+});

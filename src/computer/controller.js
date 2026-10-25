@@ -7,7 +7,7 @@ const { chordVks } = require('../win/vk');
 const KEY_CHORDS = new Set([
   'enter', 'escape', 'tab', 'shift+tab', 'space', 'backspace', 'delete',
   'up', 'down', 'left', 'right', 'home', 'end', 'pageup', 'pagedown',
-  'ctrl+a', 'ctrl+f', 'ctrl+home', 'ctrl+end', 'ctrl+enter', 'alt+left', 'alt+right',
+  'ctrl+a', 'ctrl+f', 'ctrl+home', 'ctrl+end', 'ctrl+enter', 'alt+left', 'alt+right', 'f5',
 ]);
 const BROWSERS = { chrome: 'chrome', edge: 'msedge', firefox: 'firefox', brave: 'brave' };
 const FATAL = new Set(['cancelled', 'closed', 'declined', 'foreground_changed', 'target_unavailable', 'own_window', 'focus_changed', 'blocked_target', 'native_unavailable', 'expired_action']);

@@ -1,19 +1,28 @@
 {
   "manifest_version": 3,
   "name": "Rouge Autofill",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Connects the Rouge ribbon to browser forms. No UI of its own — popups come from the ribbon.",
-  "permissions": ["activeTab", "scripting", "tabs"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["activeTab", "scripting", "tabs", "storage"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1:7432/*"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["evidence.js", "content.js"],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["page-hook.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "world": "MAIN"
     }
   ]
 }
