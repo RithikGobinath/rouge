@@ -86,6 +86,15 @@ function createPointAsk(d) {
       d.ui.state('ready');
       const via = r.provider === 'gemini' ? 'Answered by Gemini: add an Anthropic key for Claude.' : r.provider === 'claude-code' ? 'Answered by Claude Code.' : '';
       bubble({ kicker: r.kicker, text: r.text, hint: via, sources: (r.sources || []).slice(0, 12), actions: actions(), anchor: 'tip' });
+      // Auto-retract after a duration proportional to the text length.
+      // ~1 s per 100 chars, min 5 s, max 30 s.
+      const autoMs = Math.min(30000, Math.max(5000, Math.round(r.text.length * 10)));
+      const autoTimer = setTimeout(() => {
+        if (!cur || cur.id !== session.id) return;
+        cur.ac.abort(); cur = null;
+        d.overlay.send('point:clear', {});
+      }, autoMs);
+      session.ac.signal.addEventListener('abort', () => clearTimeout(autoTimer));
     } catch (e) {
       if (session.ac.signal.aborted) return;
       fail(session, e.message || 'That did not work.');
@@ -146,7 +155,7 @@ function createPointAsk(d) {
      * @param {{name?:string,type?:string,automationId?:string}|null} element
      * @param {{title?:string,process?:string}|null} win
      */
-    async pointAt(rect, element, win) {
+    async pointAt(rect, element, win, snapshotId, hwnd) {
       this.close();
       const session = { id: ++seq, ac: new AbortController(), snap: null, history: [], busy: true };
       cur = session;
@@ -156,7 +165,7 @@ function createPointAsk(d) {
         const center = { x: Math.round(rect.x + rect.w / 2), y: Math.round(rect.y + rect.h / 2) };
         const shot = await d.capture.takeDisplay(center, { win: d.overlay.win });
         if (cur !== session) return;
-        const crop = d.capture.cropAround(shot, rect);
+        const crop = d.capture.cropAround(shot, rect, { pad: 200, minW: 800, minH: 500, maxW: 1400, maxH: 900 });
         d.overlay.send('point:target', { rect: d.overlay.physToOverlay(rect), label: element && element.name ? element.name : '' });
         session.snap = {
           at: now(),
@@ -164,7 +173,79 @@ function createPointAsk(d) {
           element: element ? { name: element.name, type: element.type, automationId: element.automationId } : null,
           window: win && win.title ? { title: win.title, process: win.process } : null,
         };
-        await ask(session, '');
+        // Element-tracking: self-scheduling poll (no overlap, ≥150 ms gap) that keeps
+        // the highlight pinned as the user scrolls.  Targets the exact hwnd.
+        const trackName = element && element.name;
+        const trackHwnd = hwnd || (win && win.hwnd);
+        let tracking = true;
+        let trackFails = 0;
+        const stopTracking = () => {
+          tracking = false;
+          if (cur && cur.id === session.id) { cur.ac.abort(); cur = null; d.overlay.send('point:clear', {}); }
+        };
+        if (trackName && trackHwnd && d.sidecar && typeof d.sidecar.computerSnapshot === 'function') {
+          const track = async () => {
+            if (!tracking || !cur || cur.id !== session.id) return;
+            const t0 = Date.now();
+            let freshSnapshotId = null;
+            try {
+              const fresh = await d.sidecar.computerSnapshot(trackHwnd);
+              if (!tracking || !cur || cur.id !== session.id) {
+                if (fresh && fresh.snapshot) d.sidecar.computerRelease(fresh.snapshot.snapshotId).catch(() => {});
+                return;
+              }
+              if (fresh && fresh.snapshot) {
+                freshSnapshotId = fresh.snapshot.snapshotId;
+                const elements = fresh.snapshot.elements || [];
+                const nameLow = trackName.toLowerCase();
+                const match = elements.find(el => {
+                  const n = String(el && el.name || '').toLowerCase();
+                  return n === nameLow || n.includes(nameLow) || nameLow.includes(n);
+                });
+                if (match && match.rect) {
+                  // Only send a new target if the element moved more than 4 CSS px.
+                  // Sending setTarget on every tick restarts the strand blend animation
+                  // and prevents it from ever arriving at the button.
+                  const next = d.overlay.physToOverlay(match.rect);
+                  const prev = session._trackRect;
+                  const moved = !prev ||
+                    Math.abs(next.x - prev.x) > 4 || Math.abs(next.y - prev.y) > 4 ||
+                    Math.abs(next.w - prev.w) > 4 || Math.abs(next.h - prev.h) > 4;
+                  if (moved) {
+                    session._trackRect = next;
+                    d.overlay.send('point:target', { rect: next, label: trackName });
+                  }
+                }
+              }
+            } catch (err) {
+              const msg = String(err && (err.message || err.code) || '').toLowerCase();
+              if (msg.includes('unavailable') || msg.includes('closed') || msg.includes('window')) {
+                stopTracking(); return;
+              }
+              trackFails += 1;
+              if (trackFails >= 3) { stopTracking(); return; } // 3 consecutive failures → gone
+            }
+            finally { if (freshSnapshotId) d.sidecar.computerRelease(freshSnapshotId).catch(() => {}); }
+            // Schedule next poll after at least 150 ms total elapsed
+            const gap = Math.max(0, 150 - (Date.now() - t0));
+            if (tracking && cur && cur.id === session.id) setTimeout(track, gap);
+          };
+          setTimeout(track, 0);
+          session.ac.signal.addEventListener('abort', () => { tracking = false; });
+        }
+        const offFg = typeof d.sidecar.on === 'function'
+          ? d.sidecar.on('fg', (ev) => {
+              if (!cur || cur.id !== session.id) return;
+              // hwnd 0 means nothing took focus (window was closed with no successor).
+              // Any hwnd that isn't our tracked window means we should retract.
+              const newHwnd = ev && Number(ev.hwnd);
+              if (newHwnd !== undefined && newHwnd !== Number(trackHwnd)) {
+                stopTracking();
+              }
+            })
+          : null;
+        if (offFg) session.ac.signal.addEventListener('abort', () => offFg());
+        await ask(session, element && element.name ? 'Tell me about the ' + element.name : '');
       } catch (e) {
         log(`pointAt: ${e.message}`);
         fail(session, `I couldn't look at that: ${String(e.message || e).slice(0, 100)}`);

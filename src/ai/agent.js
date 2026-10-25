@@ -43,7 +43,7 @@ function looksLikeBlocker(text) {
  * pages often have thin accessibility trees (mostly image thumbnails), so the
  * normal meaningfulObservation gate must be relaxed for these goals.
  */
-const NAV_RE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to|the)\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b|\bpoint\s+(?:to|at)\b|\bwhere\s+is\s+(?:the\s+)?\b|\bhighlight\b/i;
+const NAV_RE = /(?:open\b.{1,80}\band\s+(?:show|go|navigate|find|change|enable|disable|update|set|do|configure|adjust|toggle|turn)\b)|\bshow\s+me\s+(?:where|how\s+to|the)\b|\bnavigate\s+to\b|\bgo\s+to\b.{0,60}\b(?:settings?|control\s+panel|panel|section|menu|preference|option)\b|\bfind\b.{1,60}\bin\b.{1,40}\b(?:settings?|app|control\s+panel|system)\b|\bpoint\s+(?:to|at)\b|\bwhere\s+is\s+(?:the\s+)?\b|\bhighlight\b|\bfind\s+(?:me\s+)?(?:the\s+)?(?:cheapest|best|lowest|fastest|top|first)\b|\bshow\s+me\s+(?:the\s+)?(?:cheapest|best|lowest|fastest|top|deals?)\b|\bcompare\s+(?:\w+\s+){0,4}(?:prices?|rates?|options?|flights?|deals?)\b|\bsearch\s+(?:for\s+)?(?:cheapest|flights?|prices?|tickets?|deals?)\b/i;
 function isNavigationGoal(goal) {
   return NAV_RE.test(String(goal || ''));
 }
