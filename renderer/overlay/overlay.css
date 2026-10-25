@@ -76,8 +76,8 @@ body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
 .quick input { flex: 1; min-width: 0; height: 28px; border: 0; outline: none; background: transparent; color: var(--ink); font: 14px var(--sys); user-select: text; }
 .quick input::placeholder { color: var(--mute); }
 
-/* Meeting details stay in the usable area; the strand reaches the system clock. */
-.meeting-reminder { z-index: 6; width: min(320px, calc(100vw - 24px)); padding: 16px 20px; }
+/* Keep the whole opaque message card above the wand, including during its arrival. */
+.meeting-reminder { z-index: 8; width: min(320px, calc(100vw - 24px)); padding: 16px 20px; }
 .meeting-reminder .t { white-space: pre-line; overflow-wrap: anywhere; }
 #meeting-time { display: inline-block; margin: 18px 12px; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
 

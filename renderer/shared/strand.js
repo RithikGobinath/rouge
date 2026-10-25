@@ -7,7 +7,7 @@
 // rolls slowly about its own length so the satin catches the light, and a small
 // wave runs down it. "Reach" runs from 0 (all of it in the mark) to 1 (all of it
 // out); the mark unrolls its loop as the ribbon leaves. Clock reminders end
-// in a straight underline and clip the clock text out of the ribbon's drawing.
+// in a flowing underline and clip the clock text out of the ribbon's drawing.
 //
 //   const thread = Strand.mount(canvas, mark, { onArrive, onRewound });
 //   thread.setTarget({ x, y, w, h });   thread.rewind();
@@ -59,9 +59,15 @@
     if (underline) {
       const left = clamp(box.x, 6, W - 6); const right = clamp(box.x + box.w, left, W - 6);
       // Keep the thick stroke outside the clock even when there is no room below it.
-      const y = box.y + box.h + 18 <= H ? box.y + box.h + 12 : Math.max(6, box.y - 12);
-      const fromRight = a.x > (left + right) / 2;
-      line = { start: { x: fromRight ? right : left, y }, end: { x: fromRight ? left : right, y } };
+      const below = box.y + box.h + 24 <= H;
+      const y = below ? box.y + box.h + 16 : Math.max(16, box.y - 16);
+      const width = right - left; const bend = width * 0.3;
+      const fromRight = W - right >= bend && (a.x > (left + right) / 2 || left < bend);
+      const start = { x: fromRight ? right : left, y }; const dir = fromRight ? -1 : 1;
+      const wave = Math.min(10, width * 0.14) * (below ? 1 : -1);
+      line = { start, end: { x: fromRight ? left : right, y: y + wave * 0.25 },
+        c1: { x: start.x + dir * bend, y: y - wave * 0.7 },
+        c2: { x: start.x + dir * width * 0.72, y: y + wave * 1.3 } };
     }
     const b = line ? line.start : stopPoint(box, a);
     const span = gap(a, b) || 1;
@@ -76,7 +82,9 @@
     return {
       a, b,
       c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
-      c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
+      // Equal handles on either side of the join keep position and tangent continuous.
+      c2: line ? { x: 2 * b.x - line.c1.x, y: 2 * b.y - line.c1.y }
+        : inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
       mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
       line,
     };
@@ -84,7 +92,9 @@
 
   const blendPlans = (p, q, f) => {
     const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
-    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), line: q.line };
+    const line = q.line && p.line ? { start: lerp(p.line.start, q.line.start), end: lerp(p.line.end, q.line.end),
+      c1: lerp(p.line.c1, q.line.c1), c2: lerp(p.line.c2, q.line.c2) } : q.line;
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), line };
   };
 
   /**
@@ -105,10 +115,12 @@
     }
     const main = len[n];
     if (plan.line) {
-      const end = plan.line.end;
-      const count = Math.max(1, Math.ceil(gap(b, end) / STEP));
+      const { end, c1, c2 } = plan.line;
+      const count = Math.max(6, Math.ceil((gap(b, c1) + gap(c1, c2) + gap(c2, end)) / STEP));
       for (let i = 1; i <= count; i += 1) {
-        const t = i / count; const x = mix(b.x, end.x, t); const y = mix(b.y, end.y, t);
+        const t = i / count; const u = 1 - t;
+        const x = u * u * u * b.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x;
+        const y = u * u * u * b.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y;
         len.push(len[len.length - 1] + Math.hypot(x - xs[xs.length - 1], y - ys[ys.length - 1]));
         xs.push(x); ys.push(y);
       }
@@ -217,7 +229,7 @@
      * ribbon, how wide, how far rolled, and its two edges. The first stretch is
      * pulled onto the mark's live tail so the two always meet.
      */
-    function samples(path, visible, live) {
+    function samples(path, visible, live, now) {
       const half0 = Math.max(2, live.r || 6);
       const phi0 = Math.acos(clamp((live.hw || half0) / half0, 0.12, 1));
       const dx0 = live.x - path.x[0]; const dy0 = live.y - path.y[0];
@@ -232,12 +244,14 @@
       const n = px.length;
       if (n < 2) return null;
       // let out, the ribbon waves a little, most toward its free end; once it has arrived the wave dies away, and it never reaches the curl
-      const amp = phase === 'out' ? WAVE : WAVE * 0.3;
+      const landing = underline ? smooth((reach - 0.65) / 0.35) : 0;
+      const damping = underline && (phase === 'held' || phase === 'back') && heldAt ? 1 - smooth((now - heldAt) / 450) : 1;
+      const amp = underline ? mix(WAVE, WAVE * 0.3, landing) * damping : phase === 'out' ? WAVE : WAVE * 0.3;
       const before = directions(px, py);
       for (let i = 0; i < n; i += 1) {
         if (run[i] <= 0) continue;
-        const settled = phase === 'out' ? 1 : smooth((visible - run[i]) / 70);
-        const clear = smooth((path.main - run[i]) / 90);
+        const settled = underline ? mix(1, smooth((visible - run[i]) / 70), landing) : phase === 'out' ? 1 : smooth((visible - run[i]) / 70);
+        const clear = underline ? mix(1, 0.22, smooth((run[i] - path.main + 90) / 180)) : smooth((path.main - run[i]) / 90);
         const off = amp * Math.sin(run[i] / 140 - clock * 2.6) * smooth(run[i] / SETTLE) * settled * clear;
         px[i] -= before.ty[i] * off; py[i] += before.tx[i] * off;
       }
@@ -247,11 +261,11 @@
       for (let i = 0; i < n; i += 1) {
         const ease = smooth(run[i] / SETTLE);
         const tip = path.total > path.main ? smooth((run[i] - path.main) / (path.total - path.main)) : 0;      // 0 along the curve, 1 at the end of the curl
-        const onLine = underline && run[i] >= path.main;
-        const hw = onLine ? 4 : mix(half0, half0 * FLARE, ease) * mix(1, CURL_WIDTH, tip);
+        const lineBlend = underline ? smooth((run[i] - path.main + 60) / 120) : 0;
+        const hw = mix(mix(half0, half0 * FLARE, ease) * (underline ? 1 : mix(1, CURL_WIDTH, tip)), 4, lineBlend);
         // a gentle roll, never edge-on: the satin keeps showing its face; it settles flat as it curls
         const free = ROLL * Math.sin(run[i] / ROLL_EVERY - clock * 1.1) + 0.2 * Math.sin(run[i] / 83 + clock * 0.7);
-        phi[i] = onLine ? 0 : mix(phi0, free, ease) * mix(1, 0.35, tip);
+        phi[i] = mix(mix(phi0, free, ease) * (underline ? 1 : mix(1, 0.35, tip)), free * 0.45, lineBlend);
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
@@ -311,7 +325,7 @@
       const path = plan ? currentPath(now) : null;
       if (!path || reach <= 0.001 || !tail) { next(); return; }
       const visible = reach * path.total;
-      const s = samples(path, visible, mark.getTailFrame() || tail);
+      const s = samples(path, visible, mark.getTailFrame() || tail, now);
       if (!s) { next(); return; }
       if (underline) {
         // Even if the incoming curve passes the clock, never paint its digits.

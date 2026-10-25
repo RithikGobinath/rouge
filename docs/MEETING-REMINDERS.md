@@ -43,10 +43,14 @@ retries loading it automatically.
   keeps priority; the reminder borrows the wand once that guidance retracts.
 - The overlay covers the full primary display so the wand can reach its menu
   bar or taskbar. Cards and the companion still use the usable work area.
-  The connected ribbon finishes in a straight eight-pixel underline, with no
-  curl or loop. The clock rectangle plus a small margin is excluded from all
-  ribbon painting, so the incoming wand cannot obscure the digits in any frame.
-  The reminder wand has no glow or shadow. When the clock touches the bottom
+  The connected ribbon finishes in a gently curved, thick underline with no
+  curl or loop. Matching curve handles and gradual width/roll changes remove
+  the sharp elbow at the join. Its motion eases through arrival and settles
+  over 600 ms instead of snapping to a rigid bar. The clock rectangle plus a
+  small margin is excluded from all ribbon painting, so the incoming wand
+  cannot obscure the digits in any frame. The opaque meeting popup is layered
+  above the wand, keeping its complete message and controls clear during the
+  entire animation. The reminder wand has no glow or shadow. When the clock touches the bottom
   edge and leaves no space below, the stroke sits just above the clock to keep
   the text clear. Animation frames stop once the ribbon settles.
 - macOS: a tiny native reader queries visible Control Center menu-window bounds
@@ -102,7 +106,8 @@ The new scheduler and clock-underline checks use synthetic local calendar data,
 fake clocks and a canvas stub. They exercise the lead time, simultaneous events,
 file changes, restart deduplication, wake recovery, DST, invalid input, watcher
 cleanup, journal errors, system-clock coordinate conversion, dismissal races,
-priority over the reminder, and connected ribbon geometry, clock-text clipping, thick underline placement,
+priority over the reminder, and connected ribbon geometry, smooth joins and width transitions, arrival easing,
+clock-text clipping, curved underline placement,
 retraction and animation settling without live input
 or API calls. The clock reader compiles on this Mac. A live lookup in the running
 Rouge process now resolves a valid region at the menu-bar time instead of

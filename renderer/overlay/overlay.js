@@ -318,7 +318,7 @@
     if (reminderOwnsWand && previous && Math.abs(previous.x - rect.x) < 0.5 && Math.abs(previous.y - rect.y) < 0.5 && Math.abs(previous.w - rect.w) < 0.5 && Math.abs(previous.h - rect.h) < 0.5) return;
     reminderOwnsWand = true; pointing = true;
     els.strip.classList.add('free');
-    strand.setTarget(rect, { underline: true, holdMs: 0 });
+    strand.setTarget(rect, { underline: true, holdMs: 600 });
     if (mark) mark.setState('reading');
   }
 

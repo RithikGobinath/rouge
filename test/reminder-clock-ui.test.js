@@ -48,6 +48,7 @@ test('meeting popup underlines the actual system clock, yields to guidance and r
   r.events.get('point:clear')();
   assert.deepEqual(r.targets.at(-1).rect, clock);
   assert.equal(r.targets.at(-1).options.underline, true);
+  assert.equal(r.targets.at(-1).options.holdMs, 600);
   assert.equal(r.targets.at(-1).options.wrap, undefined);
   r.elements.get('#meeting-dismiss').handlers.get('click')();
   assert.equal(r.elements.get('#meeting-reminder').classList.contains('hidden'), true);
