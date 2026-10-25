@@ -29,6 +29,9 @@ function registerIpc(c) {
   ipcMain.on('overlay:ask', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.answerAsk(m.id, m.yes === true); });
   ipcMain.on('overlay:offer', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.answerOffer(m.id, m.choice); });
   ipcMain.on('overlay:text', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.onCommandText(text.trim().slice(0, 600)); });
+  ipcMain.on('overlay:shelf:hold', (e, file) => { if (fromOverlay(e) && typeof file === 'string' && file.length <= 1000) c.shelf.hold(file).catch(() => {}); });
+  ipcMain.on('overlay:shelf:drag', (e, id) => { if (fromOverlay(e) && isId(id)) c.shelf.drag(e.sender, id); });
+  ipcMain.on('overlay:shelf:remove', (e, id) => { if (fromOverlay(e) && isId(id)) c.shelf.remove(id); });
   ipcMain.on('overlay:point:more', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.pointAsk.followUp(text); });
   ipcMain.on('overlay:point:close', (e) => { if (fromOverlay(e)) c.pointAsk.close(); });
   ipcMain.on('overlay:reminder:dismiss', (e) => { if (fromOverlay(e) && c.onReminderDismiss) c.onReminderDismiss(); });
