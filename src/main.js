@@ -159,7 +159,7 @@ function build() {
     },
   });
   const autofill = createAutofill({
-    profile, voice, ai, bridge, log,
+    profile, voice, bridge, log,
     ui: { review: (p) => ui.review(p), notice: (t, o) => ui.notice(t, o) },
   });
 

@@ -4,36 +4,24 @@
 //
 //   1. Extension sends form fields via bridge POST /api/form
 //   2. "Fill it?" ask card on the ribbon
-//   3. Load profile → call Model A for field → value mapping
+//   3. Load profile → deterministic planner maps fields → values (no AI needed)
 //   4. Per-field confirmation card on the ribbon
 //   5. Bridge resolves the pending poll → extension fills the DOM
 //
 // All UI is in the Rouge overlay. The extension has no UI of its own.
 
-const JSON_ARRAY_RE = { start: '[', end: ']' };
-
-function parsePlan(text) {
-  let s = String(text || '').replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
-  const start = s.indexOf('[');
-  const end = s.lastIndexOf(']');
-  if (start === -1 || end === -1 || end < start) return [];
-  try {
-    const parsed = JSON.parse(s.slice(start, end + 1));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_) { return []; }
-}
+const { planFromProfile } = require('./planner');
 
 /**
  * @param {{
  *   profile:  { profileForAutofill: () => object },
  *   voice:    { ask: (card:object) => Promise<boolean> },
- *   ai:       { answer: (q:string, opts?:object) => Promise<{text:string}> },
  *   ui:       { review: (payload:object) => Promise<Array|null>, notice: (t:string, o:object) => void },
  *   bridge:   { sendFill: (id:string, plan:Array) => void, cancel: (id:string) => void },
  *   log?:     Function,
  * }} deps
  */
-function createAutofill({ profile, voice, ai, ui, bridge, log }) {
+function createAutofill({ profile, voice, ui, bridge, log }) {
   const _log = log || (() => {});
 
   /**
@@ -53,18 +41,7 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
 
     // 2. Load profile.
     let rawProfile;
-    try {
-      const full = profile.profileForAutofill();
-      // Only send what's needed for typical forms — keeps the prompt small and fast.
-      rawProfile = {
-        personal: full.personal || {},
-        education: (full.education || []).slice(0, 1),
-        experience: (full.experience || []).slice(0, 1).map((e) => ({
-          company: e.company, title: e.title, startDate: e.startDate, endDate: e.endDate,
-        })),
-        notes: (full.notes || []).slice(-5),
-      };
-    } catch (e) {
+    try { rawProfile = profile.profileForAutofill(); } catch (e) {
       ui.notice('Your profile could not be loaded.', { tone: 'error' });
       bridge.cancel(id); return;
     }
@@ -87,38 +64,9 @@ function createAutofill({ profile, voice, ai, ui, bridge, log }) {
       bridge.cancel(id); return;
     }
 
-    // 4. Ask Model A (Haiku) to map fields → profile values.
-    let plan = [];
-    try {
-      const eg = JSON.stringify([{ label: 'Email', value: 'user@example.com', selector: '#email' }]);
-      const prompt = [
-        'TASK: map form fields to profile values. OUTPUT: a JSON array only — no prose, no explanation, no markdown.',
-        `EXAMPLE OUTPUT: ${eg}`,
-        'Rules: omit any field with no confident match; never invent data; preserve exact label and selector strings.',
-        '',
-        `FORM FIELDS: ${JSON.stringify(fieldSchema.map((f) => ({ label: f.label, type: f.type })))}`,
-        `PROFILE: ${JSON.stringify(rawProfile)}`,
-        '',
-        'JSON array output:',
-      ].join('\n');
-
-      ui.notice('Working out which fields to fill…', { tone: 'info' });
-      const result = await ai.answer(prompt, { signal: AbortSignal.timeout(30000) });
-      _log(`autofill: raw AI response: ${result.text}`);
-      plan = parsePlan(result.text);
-      _log(`autofill: parsed plan (${plan.length} entries): ${JSON.stringify(plan)}`);
-      plan = plan.filter((e) => e && typeof e.label === 'string' && typeof e.value === 'string' && e.value.trim());
-
-      // Re-attach selectors from fieldSchema by label match.
-      plan = plan.map((e) => {
-        const match = fieldSchema.find((f) => f.label.toLowerCase() === e.label.toLowerCase());
-        return { ...e, selector: e.selector || (match && match.selector) || '' };
-      });
-    } catch (e) {
-      _log(`autofill: AI plan failed: ${e.message}`);
-      ui.notice('Could not build a fill plan. Please try again.', { tone: 'error' });
-      bridge.cancel(id); return;
-    }
+    // 4. Build fill plan deterministically — no AI call, no token limits, instant.
+    const plan = planFromProfile(fieldSchema, rawProfile);
+    _log(`autofill: deterministic plan (${plan.length} entries): ${JSON.stringify(plan)}`);
 
     if (!plan.length) {
       ui.notice('No fields could be matched to your profile.', { tone: 'info' });
