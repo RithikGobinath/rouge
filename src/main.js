@@ -230,8 +230,17 @@ async function boot() {
     },
   });
 
+  // Files dropped on the ribbon are held here until they are dragged out again.
+  const shelf = require('./shelf').createShelf({
+    log,
+    send: (items) => overlay.send('shelf:items', items),
+    notice: (text) => ui.notice(text, { tone: 'info' }),
+    iconFor: (file) => app.getFileIcon(file, { size: 'large' }),
+    drag: (sender, file, icon) => sender.startDrag({ file, icon: icon && !icon.isEmpty() ? icon : (iconImage() || nativeImage.createEmpty()) }),
+  });
+
   registerIpc({
-    store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, quit: () => app.quit(),
+    store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, shelf, quit: () => app.quit(),
     onCommandText: (text) => {
       voice.runText(text).then((ok) => {
         if (!ok) ui.notice('I am still answering your previous request.', { tone: 'info' });

@@ -8,7 +8,7 @@
     dock: $('#mark-dock'), canvas: $('#mark-canvas'), strip: $('#strip'), slot: $('#strip-slot'), word: $('#strip-word'), line: $('#strip-line'),
     pill: $('#pill'), pillWords: $('#pill-words'), bubble: $('#bubble'), bubK: $('#bub-k'), bubText: $('#bub-text'), bubHint: $('#bub-hint'), bubSources: $('#bub-sources'), bubActions: $('#bub-actions'),
     ask: $('#askfirst'), askTitle: $('#ask-title'), askHint: $('#ask-hint'), offer: $('#offer'), offerSteps: $('#offer-steps'),
-    quick: $('#quick'), quickInput: $('#quick-input'), toast: $('#toast'),
+    quick: $('#quick'), quickInput: $('#quick-input'), toast: $('#toast'), shelf: $('#shelf'), shelfItems: $('#shelf-items'),
   };
 
   let settings = { markCorner: 'br', strip: false, markHidden: false, speakReplies: false };
@@ -59,7 +59,7 @@
     const down = settings.strip || (a.top + a.bottom) / 2 < H / 2;
     const rightSide = !settings.strip && (a.left + a.right) / 2 > W / 2;
     let edge = down ? a.bottom + 10 : a.top - 10;
-    const stack = [els.ask, els.pill, els.quick, els.offer, els.toast];
+    const stack = [els.ask, els.pill, els.quick, els.offer, els.toast, els.shelf];
     if (els.bubble.dataset.anchor !== 'tip') stack.splice(3, 0, els.bubble);
     for (const el of stack) {
       if (!visible(el)) continue;
@@ -241,7 +241,7 @@
   $('#offer-skip').addEventListener('click', () => { els.offer.classList.add('hidden'); bridge.offerAnswer(offerId, 'skip'); layout(); });
 
   // ---- click-through: only the UI blocks the mouse ------------------------------
-  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast';
+  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast, #shelf';
   const overUI = (x, y) => { const el = document.elementFromPoint(x, y); return Boolean(el && el.closest && el.closest(UI)); };
   let ignoring = null;
   bridge.on('cursor:probe', ({ x, y }) => { const want = !overUI(x, y); if (want !== ignoring) { ignoring = want; bridge.ignore(want); } });
@@ -284,6 +284,45 @@
     }
   });
   bridge.on('ui:notice', (m) => toast(m.text, m.tone));
+
+  // ---- files the ribbon is holding -------------------------------------------------
+  const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  function renderShelf(list) {
+    els.shelfItems.replaceChildren();
+    for (const f of (Array.isArray(list) ? list.slice(0, 5) : [])) {
+      if (!f || !Number.isInteger(f.id)) continue;
+      const chip = document.createElement('div');
+      chip.className = 'chip'; chip.draggable = true; chip.title = 'Drag this into the page or app that needs it';
+      // The file's own icon (a data URL from the app), or a plain tile when Windows gave none.
+      const icon = typeof f.icon === 'string' && /^data:image\/png;base64,/.test(f.icon) ? document.createElement('img') : document.createElement('span');
+      if (icon.tagName === 'IMG') { icon.src = f.icon; icon.alt = ''; } else icon.className = 'ic';
+      const name = document.createElement('span'); name.className = 'nm'; name.textContent = String(f.name || 'file');
+      const size = document.createElement('small'); size.textContent = sizeText(Number(f.size) || 0);
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', `Let go of ${f.name}`);
+      // The drag itself is started by the app, which owns the file's path.
+      chip.addEventListener('dragstart', (e) => { e.preventDefault(); bridge.shelfDrag(f.id); });
+      x.addEventListener('click', (e) => { e.stopPropagation(); bridge.shelfRemove(f.id); });
+      chip.append(icon, name, size, x);
+      els.shelfItems.append(chip);
+    }
+    els.shelf.classList.toggle('hidden', !els.shelfItems.childElementCount);
+    layout();
+  }
+  bridge.on('shelf:items', renderShelf);
+
+  // A file dragged over the ribbon lights it up; letting go hands it to the shelf.
+  const isFiles = (e) => Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files');
+  for (const target of [els.dock, els.slot]) {
+    target.addEventListener('dragenter', (e) => { if (isFiles(e)) { e.preventDefault(); target.classList.add('catching'); } });
+    target.addEventListener('dragover', (e) => { if (isFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    target.addEventListener('dragleave', (e) => { if (!target.contains(e.relatedTarget)) target.classList.remove('catching'); });
+    target.addEventListener('drop', (e) => {
+      if (!isFiles(e)) return;
+      e.preventDefault(); target.classList.remove('catching');
+      const held = Array.from(e.dataTransfer.files).slice(0, 5).map((file) => bridge.shelfHold(file));
+      if (!held.some(Boolean)) toast('Rouge can only hold files from this PC.', 'info');
+    });
+  }
   bridge.on('ui:ask', (m) => {
     askId = m.id;
     const kicker = m.card.kicker || 'Check first';
