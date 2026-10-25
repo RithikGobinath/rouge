@@ -166,17 +166,55 @@ function createVoice(d) {
   async function autoWand(say, snapshot, goal) {
     if (!snapshot || !Array.isArray(snapshot.elements)) return;
     const sayLow = say.toLowerCase();
-    const mentioned = snapshot.elements.find((el) => {
+    const goalLow = String(goal || '').toLowerCase();
+
+    // 1. Extract what the agent is actively recommending via action verbs.
+    //    e.g. 'Click Browse Photos' → primaryTarget = 'browse photos'
+    const actionRe = /\b(?:click|select|tap|press|use|choose|open|find|press)\s+(?:on\s+)?(?:the\s+)?['"]?([a-z][a-z\s'\-]{1,50}?)['"]?\s*(?:button|option|icon|to\b|\.(?:\s|$)|,(?:\s|$)|$)/i;
+    const actionMatch = actionRe.exec(say);
+    const primaryTarget = actionMatch ? actionMatch[1].replace(/\s+/g, ' ').trim().toLowerCase() : null;
+
+    // 2. Title-bar controls (Close/Minimize/Restore) are wrong targets for
+    //    navigation tasks. Only include them when the user specifically asked.
+    const TITLEBAR = /^(?:close|minimize|restore|maximize)$/i;
+    const wantsClosable = /\b(?:close|x button|minimize|restore)\b/i.test(goalLow);
+
+    // 3. Build candidate list: must have a rect (physical position) and a name.
+    const candidates = snapshot.elements.filter((el) => {
       const name = String(el && el.name || '').trim();
-      if (!name) return false;
-      const nameLow = name.toLowerCase();
-      // Full-name substring: element name (2+ chars) appears verbatim in the reply (case-insensitive).
-      if (name.length > 1 && sayLow.includes(nameLow)) return true;
-      // Multi-word name fallback: any significant word (>3 chars) from the name appears in say.
-      // Handles cases like element "Close Window" when agent says "click the Close button".
-      const words = nameLow.split(/\s+/).filter((w) => w.length > 3);
-      return words.length > 0 && words.some((w) => sayLow.includes(w));
+      if (!name || name.length < 2 || !el.rect) return false;
+      if (TITLEBAR.test(name) && !wantsClosable) return false;
+      return true;
     });
+
+    // 4. Priority 1: element directly recommended by an action verb.
+    let mentioned = primaryTarget
+      ? candidates.find((el) => {
+          const nameLow = el.name.toLowerCase();
+          return nameLow.includes(primaryTarget) || primaryTarget.includes(nameLow);
+        })
+      : null;
+
+    // 5. Priority 2: element whose full name or a significant word appears in say.
+    //    Prefer the LONGEST name (more specific match).
+    if (!mentioned) {
+      mentioned = candidates
+        .filter((el) => {
+          const nameLow = el.name.toLowerCase();
+          if (sayLow.includes(nameLow)) return true;
+          const words = nameLow.split(/\s+/).filter((w) => w.length > 4);
+          return words.length > 0 && words.some((w) => sayLow.includes(w));
+        })
+        .sort((a, b) => b.name.length - a.name.length)[0] || null;
+    }
+
+    // 6. If asking specifically about a close/minimize target and it survived step 3:
+    if (!mentioned && wantsClosable) {
+      mentioned = snapshot.elements
+        .filter((el) => el.rect && TITLEBAR.test(String(el.name || '')))
+        .sort((a, b) => b.name.length - a.name.length)[0] || null;
+    }
+
     if (!mentioned || !mentioned.rect) return;
     if (d.pointAsk && typeof d.pointAsk.pointAt === 'function') {
       await d.pointAsk.pointAt(mentioned.rect, mentioned, snapshot.window);
