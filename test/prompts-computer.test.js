@@ -14,3 +14,9 @@ test('the computer agent is told to keep its final answer short and to say it on
 test('plain-text tasks still return only the answer', () => {
   assert.match(computerSystem('answer', { timestamp: '2026-10-25T12:00:00Z' }), /Return only the completed answer/);
 });
+
+test('the computer agent reloads a page that opened blank, once, and then looks again', () => {
+  const plan = computerSystem('plan', { timestamp: '2026-10-25T12:00:00Z' });
+  assert.match(plan, /still blank, or shows only its frame/);
+  assert.match(plan, /reload it once with the f5 key and inspect again/);
+});

@@ -4,7 +4,7 @@ Clippy routes each released spoken request or typed request through A once. Simp
 
 The selected worker reads the active window, uses its actual controls, and observes the result after acting. It continues until it can report an observed result or a clear blocker. Opening the requested app alone does not complete a task that also asks for work inside it. Existing Chrome windows no longer incur the old six-second wait for a different window handle.
 
-The tools use Windows accessibility text and controls. They can open installed apps, navigate public web URLs, replace editable fields, click actual controls, and use a small set of navigation keys. No browser extension, new dependency, screenshot stream, or local D model is involved.
+The tools use Windows accessibility text and controls. They can open installed apps, navigate public web URLs, replace editable fields, click actual controls, and use a small set of navigation keys, including F5 to reload a page that opened blank or stuck (once, then inspect again). No browser extension, new dependency, screenshot stream, or local D model is involved.
 
 For a flight comparison, the worker must verify origin, destination, trip type, date/year and actual visible results before quoting fares. Flight research does not authorize booking. If a page does not expose usable controls or results, Clippy reports what it could not verify.
 
