@@ -76,8 +76,45 @@ function createVoice(d) {
     if (!d.ai.canAnswer() && !(d.settings().useClaudeCode && await d.ai.claudeCode.available())) { d.ui.notice('Add an Anthropic key under Your keys to use Clippy’s Claude models.', { tone: 'info' }); return { ok: false }; }
     d.ui.state('thinking', { word: 'Working it out' });
     try {
-      if (!usesClaudeRouting() && QUESTION_START.test(text)) {
-        const a = await d.ai.answer(text, { history: lastAnswer, signal: ctx.signal });
+      // Instant local reply — no model call, no network latency.
+      function instantReply(reply) {
+        d.ui.say(reply, { sources: [] });
+        if (d.settings().speakReplies && d.ui.speak) d.ui.speak(reply);
+        lastAnswer.push({ role: 'user', text }, { role: 'assistant', text: reply });
+        lastAnswer = lastAnswer.slice(-8);
+        return { ok: true, said: true };
+      }
+      const PURE_GREETING = /^(?:hi|hello|hey|howdy)[!?.\s]*$/i;
+      const PURE_ACK = /^(?:thanks|thank\s+you|ok|okay|got it|sounds good|perfect|awesome|great|cool|nice|yep|sure)[!?.\s]*$/i;
+      const TIME_QUERY = /\bwhat(?:'s|\s+is)?\s+(?:the\s+)?(?:current\s+)?time\b|\bwhat\s+time\s+is\s+it\b|\btime\s+(?:right\s+now|please)\b|\b(?:tell|give)\s+(?:me\s+)?the\s+time\b|\bcurrent\s+time\b|\btime\s+is\s+it\b/i;
+      const DATE_QUERY = /\bwhat(?:'s|\s+is)?\s+(?:the\s+)?(?:current\s+)?(?:date|day|today)\b|\bwhat\s+(?:day|date)\s+is\s+(?:it|today)\b|\bwhat\s+(?:year|month)\s+is\s+it\b/i;
+
+      if (PURE_GREETING.test(text)) {
+        const replies = ['Hey! What can I do for you?', 'Hi! How can I help?', 'Hello! What would you like?'];
+        return instantReply(replies[Math.floor(Date.now() / 60000) % replies.length]);
+      }
+      if (PURE_ACK.test(text)) return instantReply('Of course! Anything else?');
+      if (TIME_QUERY.test(text)) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return instantReply(`It's ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz })}.`);
+      }
+      if (DATE_QUERY.test(text)) {
+        return instantReply(`Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`);
+      }
+
+      const CONVERSATIONAL = /^(?:hi|hello|hey|thanks|thank(?:\s+you)?|ok|okay|sure|great|cool|nice|got it|sounds good|awesome|perfect|yep|nope|wow|lol)\b/i;
+      if (QUESTION_START.test(text) || CONVERSATIONAL.test(text)) {
+        // Stream word-by-word into the bubble as chunks arrive.  The accumulated
+        // string grows with each delta; ui:stream replaces the bubble text each
+        // time so the user sees words appearing live.  If the UI does not expose
+        // streamChunk (e.g. in tests) onChunk is a no-op and streaming still
+        // happens silently, with the final say() painting the bubble as before.
+        let streamed = '';
+        const onChunk = (chunk) => {
+          streamed += chunk;
+          if (d.ui.streamChunk) d.ui.streamChunk(streamed);
+        };
+        const a = await d.ai.answer(text, { history: lastAnswer, signal: ctx.signal, onChunk });
         lastAnswer.push({ role: 'user', text }, { role: 'assistant', text: a.text });
         lastAnswer = lastAnswer.slice(-8);
         d.ui.say(a.text, { sources: a.sources });
@@ -119,11 +156,28 @@ function createVoice(d) {
     return out;
   }
 
+  /** Mirror of isNavigationGoal in agent.js — relaxed gate for UWP pages. */
+  const isNavGoal = (text) => /\b(?:show\s+me\s+where|navigate\s+to|go\s+to|open\b.{0,80}\band\s+(?:show|find|navigate))\b/i.test(String(text || ''));
+
+  /** After a navigation task completes, visually highlight the control mentioned in the agent's reply. */
+  async function autoWand(say, snapshot, goal) {
+    if (!snapshot || !Array.isArray(snapshot.elements)) return;
+    const mentioned = snapshot.elements.find((el) => {
+      const name = String(el && el.name || '').trim();
+      return name.length > 3 && say.toLowerCase().includes(name.toLowerCase());
+    });
+    if (!mentioned || !mentioned.rect) return;
+    if (d.pointAsk && typeof d.pointAsk.pointAt === 'function') {
+      await d.pointAsk.pointAt(mentioned.rect, mentioned, snapshot.window);
+    }
+  }
+
   async function doClause(clause, ctx) {
     if (ctx.signal.aborted) return false;
     if (clause.action && clause.action.type === 'cancel') { cancel(); return false; }
     let actions = clause.action ? [clause.action] : null;
     let completion = null;
+    if (d.calendar && await d.calendar.checkText(clause.text)) return true;
     if (usesClaudeRouting()) {
       // One Haiku request owns the complete request; no other model runs first.
       const m = await askModel(clause.text, ctx);
@@ -148,6 +202,9 @@ function createVoice(d) {
     if (actions.some((a) => a.type === 'cancel')) { cancel(); return false; }
     const out = await runActions(actions, ctx);
     if (out.ok && !ctx.signal.aborted && completion && completion.say) showAnswer(clause.text, completion);
+    if (out.ok && !ctx.signal.aborted && completion && completion.snapshot && isNavGoal(clause.text)) {
+      autoWand(completion.say || '', completion.snapshot, clause.text).catch((e) => log(`autoWand: ${e.message}`));
+    }
     return out.ok;
   }
 

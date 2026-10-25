@@ -139,6 +139,38 @@ function createPointAsk(d) {
       }
     },
 
+    /**
+     * Programmatically highlight a known element by its rect (physical screen pixels).
+     * Called automatically after a navigation task when the agent names a specific control.
+     * @param {{x:number,y:number,w:number,h:number}} rect physical screen pixels
+     * @param {{name?:string,type?:string,automationId?:string}|null} element
+     * @param {{title?:string,process?:string}|null} win
+     */
+    async pointAt(rect, element, win) {
+      this.close();
+      const session = { id: ++seq, ac: new AbortController(), snap: null, history: [], busy: true };
+      cur = session;
+      const label = element && element.name ? `At: ${element.name}` : 'At that control';
+      d.ui.state('reading', { word: 'Looking', line: label });
+      try {
+        const center = { x: Math.round(rect.x + rect.w / 2), y: Math.round(rect.y + rect.h / 2) };
+        const shot = await d.capture.takeDisplay(center, { win: d.overlay.win });
+        if (cur !== session) return;
+        const crop = d.capture.cropAround(shot, rect);
+        d.overlay.send('point:target', { rect: d.overlay.physToOverlay(rect), label: element && element.name ? element.name : '' });
+        session.snap = {
+          at: now(),
+          crop: crop.dataUrl,
+          element: element ? { name: element.name, type: element.type, automationId: element.automationId } : null,
+          window: win && win.title ? { title: win.title, process: win.process } : null,
+        };
+        await ask(session, '');
+      } catch (e) {
+        log(`pointAt: ${e.message}`);
+        fail(session, `I couldn't look at that: ${String(e.message || e).slice(0, 100)}`);
+      }
+    },
+
     /** "Ask more": a typed question about the same spot, same picture. */
     async followUp(question) {
       const q = String(question || '').trim().slice(0, 1000);

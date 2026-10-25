@@ -36,8 +36,19 @@ function looksLikeBlocker(text) {
     && !/\b(fare|price|\$\d|completed successfully|here are the)\b/i.test(text);
 }
 
+/**
+ * Returns true when the goal is a navigation/pointer task — the agent's job is
+ * to land on the right screen and tell the user what to click, not to produce
+ * data that can be verified in the accessibility tree.  Windows Settings UWP
+ * pages often have thin accessibility trees (mostly image thumbnails), so the
+ * normal meaningfulObservation gate must be relaxed for these goals.
+ */
+function isNavigationGoal(goal) {
+  return /\b(?:show\s+me\s+where|navigate\s+to|go\s+to|open\b.{0,80}\band\s+(?:show|find|navigate))\b/i.test(String(goal || ''));
+}
+
 function completionEvidence(goal, snapshot, answer) {
-  if (!meaningfulObservation(snapshot)) return false;
+  if (!meaningfulObservation(snapshot) && !isNavigationGoal(goal)) return false;
   if (looksLikeBlocker(answer)) return true;
   const hay = `${snapshot.text || ''} ${(snapshot.elements || []).map((el) => el.name || '').join(' ')} ${answer}`.toUpperCase();
   const tokens = goalTokens(goal);
@@ -53,18 +64,20 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
   const started = Date.now();
   const deadline = AbortSignal.timeout(DEADLINE_MS);
   const active = signal ? AbortSignal.any([signal, deadline]) : deadline;
-  const messages = [{ role: 'user', content: [{ type: 'text', text: user }] }];
+  // The planner's "JSON only" line makes the model answer before it looks. The computer prompt already requires the final JSON.
+  const opening = String(user || '').replace(/\nJSON only\.\s*$/i, '');
+  const messages = [{ role: 'user', content: [{ type: 'text', text: opening }] }];
   const system = [{ type: 'text', text: computerSystem(task, { timestamp }), cache_control: { type: 'ephemeral' } }];
-  let session; let last; let toolCount = 0; let observed = false; let consecutiveFailures = 0;
+  let session; let last; let toolCount = 0; let observed = false; let nudged = false; let consecutiveFailures = 0;
   let lastSnapshot = null;
   const failedActions = new Set();
   function checkCancelled() {
     if (signal && signal.aborted) throw new AiError('The request was cancelled.', { provider: 'anthropic', code: 'cancelled' });
     return deadline.aborted;
   }
-  function finish(say) {
+  function finish(say, extra) {
     return { text: task === 'plan' ? JSON.stringify({ say, actions: [] }) : say, sources: [], webUsed: false, computerUsed: true,
-      provider: 'anthropic', role: last && last.role, model, calls: last && last.calls };
+      provider: 'anthropic', role: last && last.role, model, calls: last && last.calls, ...(extra || {}) };
   }
   try {
     if (checkCancelled()) return finish('I ran out of time before I could verify the task was complete.');
@@ -91,7 +104,14 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
       if (last.stop_reason === 'pause_turn') return finish('The computer task paused before I could verify completion.');
       if (last.stop_reason !== 'tool_use') {
         if (!['end_turn', 'stop_sequence'].includes(last.stop_reason) || calls.length) return finish('The computer task stopped without a complete answer.');
-        if (!observed || !meaningfulObservation(lastSnapshot)) {
+        if (!observed && toolCount === 0 && !nudged) {
+          nudged = true;
+          messages.push({ role: 'assistant', content: content.length ? content : [{ type: 'text', text: 'No observation yet.' }] });
+          messages.push({ role: 'user', content: [{ type: 'text', text: 'You have not inspected the computer. Call computer_inspect before answering. Do not claim the task is done.' }] });
+          continue;
+        }
+        const isNav = isNavigationGoal(goal);
+        if ((!observed || !meaningfulObservation(lastSnapshot)) && !(isNav && toolCount > 0)) {
           return finish('I could not verify the requested outcome from the computer, so I stopped short of claiming it was done.');
         }
         const text = content.filter((block) => block.type === 'text').map((block) => block.text || '').join('').trim();
@@ -99,7 +119,7 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
           if (!completionEvidence(goal, lastSnapshot, text)) {
             return finish('I could not verify the requested outcome from the computer, so I stopped short of claiming it was done.');
           }
-          return finish(text || 'The computer task stopped without a usable answer.');
+          return finish(text || 'The computer task stopped without a usable answer.', { snapshot: lastSnapshot });
         }
         let final;
         try { final = JSON.parse(text); } catch (_) { /* Never execute a partial or malformed final plan. */ }
@@ -109,7 +129,7 @@ async function runComputerAgent({ controller, request, user, goal, task, model, 
         if (!completionEvidence(goal, lastSnapshot, final.say)) {
           return finish('I could not verify the requested outcome from the computer, so I stopped short of claiming it was done.');
         }
-        return finish(final.say.trim());
+        return finish(final.say.trim(), { snapshot: lastSnapshot });
       }
       if (!calls.length || calls.some((call) => typeof call.id !== 'string' || !call.id) || new Set(calls.map((call) => call.id)).size !== calls.length) {
         return finish('Claude returned an incomplete computer command, so I stopped.');

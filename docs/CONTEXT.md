@@ -21,9 +21,9 @@ Configured model defaults:
 | A | claude-haiku-5-5 | Direct answers and routing |
 | B | claude-sonnet-5-5 | Ordinary delegated work and computer tasks |
 | C | claude-opus-5-5 | Hard reasoning |
-| D | Not selected or connected | Planned local visual context |
+| D | Qwen3.5-2B Q4_K_M + F16 vision encoder, local CUDA | Meeting-conflict watch |
 
-A direct answer uses one application request. A delegated ordinary answer normally uses A plus the selected worker. Interactive work uses A once and then the selected B/C worker's tool continuations. Preserve complete assistant content, thinking signatures and matched tool results between those turns.
+Auto is on by default. A local check picks one of A, B, or C and that model answers. Simple replies stay on A. Live lookups and computer work use B. Unusually hard reasoning uses C. There is no extra routing request. With Auto off, A still answers or routes inside its existing first call, and a delegated answer then uses the selected worker. Interactive work stays with that B/C worker's tool continuations. Preserve complete assistant content, thinking signatures and matched tool results between those turns. D is not in the Auto pool. It runs locally on the GPU and checks a visible meeting draft against the saved calendar snapshot. It takes a background screenshot once a second only while Rouge is idle and the mouse has moved, clicked, or typed. A still, inactive screen takes none. One requested look can still be taken during a request.
 
 src/ai/agent.js currently bounds computer work to 20 turns, 24 tool calls and three minutes. src/computer/controller.js exposes computer_inspect and computer_act. Actions include opening apps, public web navigation, filling controls, clicking, navigation keys, scrolling and short waits. Controls have snapshot-scoped opaque references.
 
@@ -39,7 +39,7 @@ Keep the Electron foundation and A/B/C routing. Improve browser-specific control
 
 Completion must eventually be checked against the requested result, not merely the presence of a toolbar or a successful click. For flights this includes route, one-way setting, date/year and observed fares. Prefer compact observations, local condition-based waits and short validated batches to unnecessary model round trips.
 
-D is intended to check for screen changes each second while the screen is active and Rouge is idle. A proposed optimization is cheap local change detection before visual inference. Hardware/model selection, privacy behavior, capture scope and integration remain future work.
+D checks a visible meeting draft against the saved calendar snapshot. The local model decides whether the user is proposing a meeting from the draft and immediately preceding visible message; code then validates explicit date/time evidence and performs the overlap check. It does not store conversation history. Informational or context-free ambiguous meeting text should stay quiet. Background screenshots are at most once a second, only while Rouge is idle and there is fresh keyboard or mouse activity. The local model is Qwen3.5-2B with its F16 vision encoder on CUDA.
 
 ## Important compatibility decisions
 

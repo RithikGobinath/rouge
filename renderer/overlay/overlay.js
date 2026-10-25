@@ -265,6 +265,24 @@
   bridge.on('ui:transcript', (m) => { live = m.text; render(); });
   bridge.on('ui:level', (v) => { if (mark) mark.setLevel(v); });
   bridge.on('ui:say', (m) => showBubble({ kicker: m.kicker || 'Answer', text: m.text, hint: fileSourceHint(m.sources), sources: m.sources, actions: [{ id: 'close', label: 'Close' }], anchor: 'mark', autoHide: 18000 }));
+  // Streaming: show the bubble as soon as the first chunk arrives; update text
+  // on each subsequent chunk.  The final ui:say replaces it with the complete
+  // bubble including sources, Close button and autoHide timer.
+  bridge.on('ui:stream', (m) => {
+    const wasHidden = els.bubble.classList.contains('hidden');
+    els.bubText.textContent = m.text;
+    if (wasHidden) {
+      els.bubK.textContent = 'Answer';
+      els.bubHint.textContent = '';
+      els.bubHint.classList.add('hidden');
+      els.bubSources.replaceChildren();
+      els.bubSources.classList.add('hidden');
+      els.bubActions.replaceChildren();
+      els.bubble.dataset.anchor = 'mark';
+      els.bubble.classList.remove('hidden');
+      layout();
+    }
+  });
   bridge.on('ui:notice', (m) => toast(m.text, m.tone));
   bridge.on('ui:ask', (m) => { askId = m.id; $('#ask-title').textContent = m.card.title; $('#ask-hint').textContent = m.card.hint; els.ask.classList.remove('hidden'); layout(); });
   bridge.on('ui:ask:close', (m) => { if (m.id === askId) { els.ask.classList.add('hidden'); layout(); } });
