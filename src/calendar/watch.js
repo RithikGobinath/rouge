@@ -104,8 +104,15 @@ function createCalendarWatch(deps) {
     }
     if (!intent) return false;
     const result = inspectProposal({ intent: true, date: dt.date, time: dt.time, timezone: dt.timezone, duration_minutes: null, ambiguity: null }, deps.cache);
-    publish(result, false);
-    return result.kind === 'conflict' || result.kind === 'tentative';
+    // Always show a result and intercept — never hand off to Claude for meeting proposals.
+    // 'clear' shows "No overlap found" instantly; 'conflict'/'tentative' shows the warning.
+    // 'coverage' shows the out-of-range notice. All instant, no model call.
+    if (result.kind === 'clear') {
+      deps.notice(`No conflicts at ${dt.time.replace(/^0/, '')} on ${new Date(result.proposal.start).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: dt.timezone })}.`, { tone: 'info' });
+    } else {
+      publish(result, true);
+    }
+    return result.kind !== 'idle'; // intercept for any real proposal
   }
 
   function enqueue(image) {
