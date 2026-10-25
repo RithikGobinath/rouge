@@ -103,4 +103,4 @@ async function extract(file) {
   return { text: '', kind: 'calendar', events };
 }
 
-module.exports = { extract, docxXmlToText, SUPPORTED, MAX_BYTES };
+module.exports = { extract, docxXmlToText, SUPPORTED, MAX_BYTES, loadPdfjs, pdfText };
