@@ -251,8 +251,47 @@ namespace Sidecar {
       return ClockCandidate(buttons, trayBounds, true);
     }
 
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder into, ref uint size);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+
+    // Reading a process's main module takes 10-20 ms (it lists every loaded DLL), and every window list, front-window check and
+    // focus request asks for it once per window. A program's name and place do not change while it runs, so what Windows
+    // said is kept per process. The cheap image-path query is asked each time, so a reused process id is never mistaken.
+    sealed class Known { public string Image, Name, Exe; }
+    static readonly Dictionary<uint, Known> known = new Dictionary<uint, Known>();
+
+    static string ImagePath(uint pid) {
+      IntPtr h = OpenProcess(0x1000, false, pid);                      // PROCESS_QUERY_LIMITED_INFORMATION
+      if (h == IntPtr.Zero) return null;
+      try {
+        StringBuilder into = new StringBuilder(1024);
+        uint size = (uint)into.Capacity;
+        return QueryFullProcessImageName(h, 0, into, ref size) ? into.ToString(0, (int)size) : null;
+      } finally { CloseHandle(h); }
+    }
+
     /// <summary>The name of a process, and where its program is (empty when Windows will not say).</summary>
     public static string[] Program(uint pid) {
+      string image = ImagePath(pid);
+      Known hit;
+      if (image != null) {
+        lock (known) {
+          if (known.TryGetValue(pid, out hit) && string.Equals(hit.Image, image, StringComparison.OrdinalIgnoreCase))
+            return new string[] { hit.Name, hit.Exe };
+        }
+      }
+      string[] now = ReadProgram(pid);
+      if (image != null && now[0].Length > 0) {
+        lock (known) {
+          if (known.Count > 512) known.Clear();
+          known[pid] = new Known { Image = image, Name = now[0], Exe = now[1] };
+        }
+      }
+      return now;
+    }
+
+    static string[] ReadProgram(uint pid) {
       try {
         using (Process p = Process.GetProcessById((int)pid)) {
           string path = "";
@@ -580,13 +619,16 @@ namespace Sidecar {
       return false;
     }
     // Keep in sync with src/pointing/private-fields.json / sensitive.js.
+    static bool SecretLabel(string label) {
+      return System.Text.RegularExpressions.Regex.IsMatch(label,
+        @"password|passcode|passwd|\bpwd\b|\bpin\b|\botp\b|cvv|cvc|\bcard\b|credit|debit|account|routing|\bssn\b|passport|secret|credential|social\s*security|national\s*id|government\s*id|tax\s*id|security\s*code|verification\s*code|one\s*time\s*code|drivers?\s*licen[cs]e|api\s*key|access\s*token|refresh\s*token");
+    }
     static bool Secret(AutomationElement e) {
       if (e.Current.IsPassword) return true;
       string type = TypeOf(e);
       if (type != "Edit" && type != "ComboBox") return false;
       string label = (e.Current.Name + " " + e.Current.AutomationId).ToLowerInvariant();
-      return System.Text.RegularExpressions.Regex.IsMatch(label,
-        @"password|passcode|passwd|\bpwd\b|\bpin\b|\botp\b|cvv|cvc|\bcard\b|credit|debit|account|routing|\bssn\b|passport|secret|credential|social\s*security|national\s*id|government\s*id|tax\s*id|security\s*code|verification\s*code|one\s*time\s*code|drivers?\s*licen[cs]e|api\s*key|access\s*token|refresh\s*token");
+      return SecretLabel(label);
     }
     static bool Visible(AutomationElement e, IntPtr h) {
       if (e.Current.IsOffscreen) return false;
@@ -611,6 +653,16 @@ namespace Sidecar {
       if (string.IsNullOrEmpty(id) || id != generation) throw new InvalidOperationException("stale_snapshot");
       Window(target, ignore, activate);
     }
+    // `known` says which patterns the control has (from the batched read); a live control asks for each, as before.
+    static void FillValue(ComputerRow r, AutomationElement e, Seen known) {
+      object p;
+      if ((r.Type == "Edit" || r.Type == "ComboBox") && (known == null || known.HasValue) && e.TryGetCurrentPattern(ValuePattern.Pattern, out p))
+        r.Value = Clip(((ValuePattern)p).Current.Value, 2000);
+      else if (r.Type == "CheckBox" && (known == null || known.HasToggle) && e.TryGetCurrentPattern(TogglePattern.Pattern, out p))
+        r.Value = ((TogglePattern)p).Current.ToggleState.ToString();
+      else if ((known == null || known.HasSelect) && e.TryGetCurrentPattern(SelectionItemPattern.Pattern, out p))
+        r.Value = ((SelectionItemPattern)p).Current.IsSelected ? "selected" : null;
+    }
     static ComputerRow Row(AutomationElement e, string id) {
       if (Secret(e)) return null;
       ComputerRow r = new ComputerRow();
@@ -619,13 +671,53 @@ namespace Sidecar {
       System.Windows.Rect b = e.Current.BoundingRectangle;
       r.X = (int)Math.Round(b.X); r.Y = (int)Math.Round(b.Y); r.W = (int)Math.Round(b.Width); r.H = (int)Math.Round(b.Height);
       r.Focused = e.Current.HasKeyboardFocus;
-      object p;
-      if ((r.Type == "Edit" || r.Type == "ComboBox") && e.TryGetCurrentPattern(ValuePattern.Pattern, out p))
-        r.Value = Clip(((ValuePattern)p).Current.Value, 2000);
-      else if (r.Type == "CheckBox" && e.TryGetCurrentPattern(TogglePattern.Pattern, out p))
-        r.Value = ((TogglePattern)p).Current.ToggleState.ToString();
-      else if (e.TryGetCurrentPattern(SelectionItemPattern.Pattern, out p))
-        r.Value = ((SelectionItemPattern)p).Current.IsSelected ? "selected" : null;
+      FillValue(r, e, null);
+      return r;
+    }
+
+    // ---- the snapshot's own reads ---------------------------------------------------------------
+    // Asking a window's controls for their properties one at a time is a cross-process call each, about ten per control, and
+    // it was the whole cost of a snapshot. Listing a control's children can bring those properties back in the same call
+    // (a UI Automation cache request), so the walk reads each control once, from what came back. The checks are the same ones
+    // Secret, Visible and Row make on a live control; acting on a control still reads it live.
+    sealed class Seen {
+      public bool Offscreen, Password, Focused, HasValue, HasToggle, HasSelect;
+      public string Type, Name, Id;
+      public System.Windows.Rect Box;
+    }
+    static bool Has(AutomationElement e, AutomationProperty property) { object v = e.GetCachedPropertyValue(property); return v is bool && (bool)v; }
+    static Seen Look(AutomationElement e) {
+      AutomationElement.AutomationElementInformation c = e.Cached;
+      Seen s = new Seen();
+      s.Offscreen = c.IsOffscreen; s.Password = c.IsPassword; s.Focused = c.HasKeyboardFocus;
+      s.Type = c.ControlType.ProgrammaticName.Replace("ControlType.", "");
+      s.Name = c.Name; s.Id = c.AutomationId; s.Box = c.BoundingRectangle;
+      s.HasValue = Has(e, AutomationElement.IsValuePatternAvailableProperty);
+      s.HasToggle = Has(e, AutomationElement.IsTogglePatternAvailableProperty);
+      s.HasSelect = Has(e, AutomationElement.IsSelectionItemPatternAvailableProperty);
+      return s;
+    }
+    static bool SecretOf(Seen s) {
+      if (s.Password) return true;
+      if (s.Type != "Edit" && s.Type != "ComboBox") return false;
+      return SecretLabel((s.Name + " " + s.Id).ToLowerInvariant());
+    }
+    static bool VisibleOf(Seen s, int[] b) {
+      if (s.Offscreen) return false;
+      System.Windows.Rect r = s.Box;
+      return b != null && !r.IsEmpty && r.Width > 0 && r.Height > 0 &&
+        !double.IsInfinity(r.X) && !double.IsInfinity(r.Y) && !double.IsNaN(r.X) && !double.IsNaN(r.Y) &&
+        r.Right > b[0] && r.Left < b[2] && r.Bottom > b[1] && r.Top < b[3];
+    }
+    static ComputerRow RowOf(AutomationElement e, string id, Seen s) {
+      if (SecretOf(s)) return null;
+      ComputerRow r = new ComputerRow();
+      r.Ref = id; r.Live = e; r.OriginalName = s.Name ?? "";
+      r.Name = Clip(r.OriginalName, 500); r.Type = s.Type;
+      System.Windows.Rect b = s.Box;
+      r.X = (int)Math.Round(b.X); r.Y = (int)Math.Round(b.Y); r.W = (int)Math.Round(b.Width); r.H = (int)Math.Round(b.Height);
+      r.Focused = s.Focused;
+      FillValue(r, e, s);
       return r;
     }
     public static ComputerView Snapshot(IntPtr requested, uint ignore) {
@@ -636,26 +728,34 @@ namespace Sidecar {
       ComputerView view = new ComputerView();
       view.Hwnd = h; view.SnapshotId = Guid.NewGuid().ToString("N"); view.Text = "";
       target = h; root = AutomationElement.FromHandle(h);
-      Queue<AutomationElement> pending = new Queue<AutomationElement>(); pending.Enqueue(root);
+      Queue<AutomationElement> pending = new Queue<AutomationElement>();
       List<AutomationElement> documents = new List<AutomationElement>();
       Stopwatch clock = Stopwatch.StartNew(); int visited = 0; bool sensitive = false;
       CacheRequest cache = new CacheRequest();
-      cache.Add(AutomationElement.IsOffscreenProperty); cache.TreeScope = TreeScope.Element;
+      cache.Add(AutomationElement.IsOffscreenProperty); cache.Add(AutomationElement.ControlTypeProperty);
+      cache.Add(AutomationElement.NameProperty); cache.Add(AutomationElement.AutomationIdProperty);
+      cache.Add(AutomationElement.IsPasswordProperty); cache.Add(AutomationElement.BoundingRectangleProperty);
+      cache.Add(AutomationElement.HasKeyboardFocusProperty);
+      cache.Add(AutomationElement.IsValuePatternAvailableProperty); cache.Add(AutomationElement.IsTogglePatternAvailableProperty);
+      cache.Add(AutomationElement.IsSelectionItemPatternAvailableProperty);
+      cache.TreeScope = TreeScope.Element;
+      try { pending.Enqueue(root.GetUpdatedCache(cache)); } catch (ElementNotAvailableException) { }
+      int[] bounds = Desk.Bounds(h);
       while (pending.Count > 0 && visited < 2400 && view.Elements.Count < 320 && clock.ElapsedMilliseconds < 1100) {
         AutomationElement e = pending.Dequeue(); visited++;
         try {
-          if (Secret(e)) { sensitive = true; continue; }
-          bool visible = Visible(e, h);
-          string type = TypeOf(e);
-          if (visible && Controls.Contains(type)) {
-            ComputerRow row = Row(e, Guid.NewGuid().ToString("N"));
+          Seen seen = Look(e);
+          if (SecretOf(seen)) { sensitive = true; continue; }
+          bool visible = VisibleOf(seen, bounds);
+          if (visible && Controls.Contains(seen.Type)) {
+            ComputerRow row = RowOf(e, Guid.NewGuid().ToString("N"), seen);
             if (row != null) {
               view.Elements.Add(row); refs.Add(row.Ref, row);
-              if (type == "Document" && documents.Count < 2) documents.Add(e);
+              if (seen.Type == "Document" && documents.Count < 2) documents.Add(e);
             }
           }
           // Invisible nodes cannot contribute visible controls; panes with no bounds can still contain children.
-          if (e.Current.IsOffscreen) continue;
+          if (seen.Offscreen) continue;
           AutomationElementCollection children;
           using (cache.Activate()) { children = e.FindAll(TreeScope.Children, Condition.TrueCondition); }
           foreach (AutomationElement child in children) {
@@ -813,6 +913,67 @@ namespace Sidecar {
     }
   }
 
+  /// <summary>
+  /// The keys, mouse clicks and front window the app asked to hear about. They are polled here, in compiled code,
+  /// every 15 ms while anything is watched: interpreted PowerShell doing the same cost about 3% of a core, all day.
+  /// Events are written exactly as the script's Send writes them, from the same thread, so their order is unchanged.
+  /// </summary>
+  public sealed class Scanner {
+    int[] keys = new int[0];
+    bool[] held = new bool[0];
+    bool clicks, front, mouseWas, haveSpot;
+    int spotX, spotY, frontAt;
+    long frontWas;
+    /// <summary>Set when the front window changed; the script then describes it and sends the event.</summary>
+    public volatile bool FrontChanged;
+    public int LastPoll;
+
+    public bool Active { get { return clicks || front || keys.Length > 0; } }
+
+    public void Start(int[] wanted, bool watchClicks, bool watchFront) {
+      keys = wanted == null ? new int[0] : wanted;
+      held = new bool[keys.Length];
+      for (int i = 0; i < keys.Length; i++) held[i] = Synth.IsDown(keys[i]);
+      clicks = watchClicks; front = watchFront;
+      mouseWas = Synth.IsDown(1); haveSpot = false;
+      frontWas = Desk.Front().ToInt64(); frontAt = 0; FrontChanged = false;
+    }
+
+    public void Stop() {
+      keys = new int[0]; held = new bool[0];
+      clicks = false; front = false; haveSpot = false; FrontChanged = false;
+    }
+
+    static void Emit(string line) { Console.Out.WriteLine(line); Console.Out.Flush(); }
+
+    public void Poll() {
+      LastPoll = Environment.TickCount;
+      if (clicks) {
+        bool down = Synth.IsDown(1);
+        if (down && !mouseWas) { int[] at = Synth.Where(); spotX = at[0]; spotY = at[1]; haveSpot = true; }
+        if (mouseWas && !down) {
+          int x, y;
+          if (haveSpot) { x = spotX; y = spotY; } else { int[] at = Synth.Where(); x = at[0]; y = at[1]; }
+          Emit("{\"ev\":\"click\",\"x\":" + x + ",\"y\":" + y + ",\"t\":" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + "}");
+          haveSpot = false;
+        }
+        mouseWas = down;
+      }
+      for (int i = 0; i < keys.Length; i++) {
+        bool now = Synth.IsDown(keys[i]);
+        if (now != held[i]) { held[i] = now; Emit("{\"ev\":\"key\",\"vk\":" + keys[i] + ",\"down\":" + (now ? "true" : "false") + "}"); }
+      }
+      if (front) {
+        int tick = Environment.TickCount;
+        if (tick - frontAt >= 500) {
+          frontAt = tick;
+          long h = Desk.Front().ToInt64();
+          if (h != frontWas) { frontWas = h; FrontChanged = true; }
+        }
+      }
+    }
+  }
+
   /// <summary>Reads stdin on its own thread, so the main loop can wait for a line and still watch the keyboard.</summary>
   public sealed class Lines {
     readonly Queue<string> queue = new Queue<string>();
@@ -838,6 +999,20 @@ namespace Sidecar {
       lock (queue) { if (queue.Count > 0) return queue.Dequeue(); }
       arrived.WaitOne(ms);
       lock (queue) { return queue.Count > 0 ? queue.Dequeue() : null; }
+    }
+    /// <summary>
+    /// The next request, or null when `idleMs` passes with nothing to do (or the window in front changed, or stdin closed).
+    /// While the scanner is active this polls it every 15 ms itself, so the script's loop wakes only for real work.
+    /// </summary>
+    public string Wait(Scanner scan, int idleMs) {
+      if (scan.Active && Environment.TickCount - scan.LastPoll >= 15) scan.Poll();
+      while (true) {
+        string line = Next(scan.Active ? 15 : idleMs);
+        if (line != null || Closed) return line;
+        if (!scan.Active) return null;
+        scan.Poll();
+        if (scan.FrontChanged) return null;
+      }
     }
   }
 }
@@ -1045,44 +1220,13 @@ $Ops['keys.state'] = { param($r)
 }
 
 # ---- watching the keyboard and the mouse, for as long as someone asks ---------------------
-$script:Watch = $null
-
+$script:Scan = New-Object Sidecar.Scanner
 $Ops['watch.start'] = { param($r)
   $keys = @(); if ($r.keys) { $keys = @($r.keys | ForEach-Object { [int]$_ }) }
-  $w = @{ keys = $keys; clicks = [bool]$r.click; front = [bool]$r.fg; held = @{}; pressedAt = $null; mouseWas = $false; frontWas = [int64][Sidecar.Desk]::Front(); frontAt = 0 }
-  foreach ($k in $keys) { $w.held[$k] = [Sidecar.Synth]::IsDown($k) }
-  $w.mouseWas = [Sidecar.Synth]::IsDown(1)
-  $script:Watch = $w
+  $script:Scan.Start([int[]]$keys, [bool]$r.click, [bool]$r.fg)
   @{ ok = $true; watching = $true }
 }
-$Ops['watch.stop'] = { param($r) $script:Watch = $null; @{ ok = $true; watching = $false } }
-
-function Scan-Inputs {
-  $w = $script:Watch
-  if (-not $w) { return }
-  if ($w.clicks) {
-    $down = [Sidecar.Synth]::IsDown(1)
-    if ($down -and -not $w.mouseWas) { $w.pressedAt = [Sidecar.Synth]::Where() }
-    if ($w.mouseWas -and -not $down) {
-      $at = if ($w.pressedAt) { $w.pressedAt } else { [Sidecar.Synth]::Where() }
-      Send @{ ev = 'click'; x = $at[0]; y = $at[1]; t = [int64][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
-      $w.pressedAt = $null
-    }
-    $w.mouseWas = $down
-  }
-  foreach ($k in $w.keys) {
-    $now = [Sidecar.Synth]::IsDown($k)
-    if ($now -ne $w.held[$k]) { $w.held[$k] = $now; Send @{ ev = 'key'; vk = $k; down = $now } }
-  }
-  if ($w.front) {
-    $tick = [Environment]::TickCount
-    if ($tick - $w.frontAt -ge 500) {
-      $w.frontAt = $tick
-      $h = [int64][Sidecar.Desk]::Front()
-      if ($h -ne $w.frontWas) { $w.frontWas = $h; $f = Describe-Front 0; $f.ev = 'fg'; Send $f }
-    }
-  }
-}
+$Ops['watch.stop'] = { param($r) $script:Scan.Stop(); @{ ok = $true; watching = $false } }
 
 # ---- the loop ------------------------------------------------------------------------
 function Answer([string]$line) {
@@ -1104,8 +1248,11 @@ function Answer([string]$line) {
 $lines = New-Object Sidecar.Lines
 Send @{ ev = 'ready'; pid = $PID }
 while ($true) {
-  $line = $lines.Next($(if ($script:Watch) { 15 } else { 250 }))
+  $line = $lines.Wait($script:Scan, 250)
   if ($line) { if ($line.Trim().Length -gt 0) { Answer $line } }
   elseif ($lines.Closed) { break }
-  if ($script:Watch) { try { Scan-Inputs } catch { Send @{ ev = 'error'; message = [string]$_.Exception.Message } } }
+  if ($script:Scan.FrontChanged) {
+    $script:Scan.FrontChanged = $false
+    try { $f = Describe-Front 0; $f.ev = 'fg'; Send $f } catch { Send @{ ev = 'error'; message = [string]$_.Exception.Message } }
+  }
 }
