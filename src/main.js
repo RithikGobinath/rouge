@@ -6,13 +6,14 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
-const { app, shell, safeStorage, nativeImage, BrowserWindow, screen } = require('electron');
+const { app, shell, safeStorage, nativeImage, BrowserWindow, screen, powerMonitor } = require('electron');
 const brand = require('./brand');
 
 const ROOT = path.join(__dirname, '..');
+const MAC_DEV = process.platform === 'darwin' && process.argv.includes('--mac-dev');
 const FLAGS = { shots: process.argv.includes('--shots'), smoke: process.argv.includes('--smoke') };
 const TEST = FLAGS.shots || FLAGS.smoke;
-if (TEST) process.env.CLIPPY_NO_HOTKEYS = '1';
+if (TEST || MAC_DEV) process.env.CLIPPY_NO_HOTKEYS = '1';
 if (TEST && !process.env.CLIPPY_USER_DATA) process.env.CLIPPY_USER_DATA = require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'clippy-test-'));
 
 app.setName(brand.name);
@@ -37,6 +38,7 @@ const capture = require('./pointing/capture');
 const { sensitiveTarget } = require('./pointing/sensitive');
 const { prepareCache } = require('./calendar/conflict');
 const { createCalendarWatch, startVisionModel } = require('./calendar/watch');
+const { createMeetingReminders } = require('./calendar/reminders');
 const { createOverlay } = require('./app/overlay');
 const { createOverlayUi } = require('./app/overlayUi');
 const { createHotkeys, spoken } = require('./app/hotkeys');
@@ -52,7 +54,9 @@ const VISION_PORT = 18770;
 function calendarPaths() {
   const lab = process.env.CLIPPY_LAB_ROOT || 'C:\\Users\\rithi\\OneDrive\\Documents\\AutoAnatomy\\clippy-calendar-lab';
   return {
-    cacheFile: process.env.CLIPPY_CALENDAR_FILE || 'C:\\Users\\rithi\\.codex\\visualizations\\2026\\10\\19\\01a15501-b9fd-7720-9e84-9a7afef156cb\\clippy-calendar-lab-private\\calendar.json',
+    cacheFile: process.env.CLIPPY_CALENDAR_FILE || (process.platform === 'win32'
+      ? 'C:\\Users\\rithi\\.codex\\visualizations\\2026\\10\\19\\01a15501-b9fd-7720-9e84-9a7afef156cb\\clippy-calendar-lab-private\\calendar.json'
+      : path.join(ROOT, 'calendar.json')),
     exe: path.join(lab, 'runtime', 'llama-cuda', 'llama-server.exe'),
     model: path.join(lab, 'models', 'Qwen3.5-2B-Q4_K_M.gguf'),
     mmproj: path.join(lab, 'models', 'mmproj-F16.gguf'),
@@ -98,11 +102,12 @@ function build() {
   let voice = null;
   const paths = Object.fromEntries(['downloads', 'documents', 'desktop', 'pictures', 'music', 'videos'].map((n) => [n, app.getPath(n)]).concat([['home', app.getPath('home')]]));
   const executor = createExecutor({
+    disabledReason: MAC_DEV ? 'Computer controls are disabled during Mac development.' : '',
     sidecar, apps, folders, routines, paths, ask: (card) => voice.ask(card), say: ({ text }) => ui.say(text),
     shell: { openExternal: (u) => shell.openExternal(u), openPath: (p) => shell.openPath(p) },
     spawnDetached: (file, args) => { const c = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true }); c.on('error', (e) => log(`spawn ${file}: ${e.message}`)); c.unref(); },
   });
-  computer = createComputerController({ sidecar, executor, ui: { ...ui, ask: (card) => voice.ask(card) }, log });
+  if (!MAC_DEV) computer = createComputerController({ sidecar, executor, ui: { ...ui, ask: (card) => voice.ask(card) }, log });
 
   let jev = null; let jevKey = '';
   const getJev = () => {
@@ -145,7 +150,12 @@ function build() {
   };
   const calendar = createCalendarWatch(calendarDeps);
   voiceDeps.calendar = calendar;
-  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, noteClick: () => { calendarClicks += 1; }, paths, getJev };
+  const reminders = createMeetingReminders({
+    file: calendarPaths().cacheFile, stateFile: path.join(dir, 'meeting-reminders.json'),
+    notify: (events) => { overlay.show(); overlay.send('calendar:reminder', { events }); },
+    onStatus: (status) => log(`meeting reminders: ${status}`),
+  });
+  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, reminders, noteClick: () => { calendarClicks += 1; }, paths, getJev };
 }
 
 function iconImage() {
@@ -171,9 +181,10 @@ async function boot() {
   const buildState = async () => {
     const s = store.settings();
     return {
-      name: brand.name, version: app.getVersion(), dataDir: app.getPath('userData'), settings: s, keys: store.keyStatus(), claudeCode: s.useClaudeCode ? await ai.claudeCode.available() : false,
+      name: brand.name, version: app.getVersion(), development: MAC_DEV, dataDir: app.getPath('userData'), settings: s, keys: store.keyStatus(), claudeCode: s.useClaudeCode ? await ai.claudeCode.available() : false,
       voice: { available: speech.available, recognizer: speech.recognizer, error: speech.error },
       helper: { win: sidecar.available },
+      reminders: { status: services.reminders.status(), file: services.reminders.file },
       defaultHotkeys: store.defaults().hotkeys,
       hotkeys: Object.fromEntries(['talk', 'point', 'hide', 'panic'].map((k) => [k, { accel: s.hotkeys[k], ok: hotkeyStatus[k] || paused || process.env.CLIPPY_NO_HOTKEYS === '1' }])),
       folders: folders.list(), routines: routines.list(),
@@ -222,7 +233,7 @@ async function boot() {
   // ---- the windows and the tray ----------------------------------------------------
   const trayIcon = nativeImage.createFromPath(path.join(ROOT, 'assets', 'tray-icon.png')).resize({ width: 32, height: 32, quality: 'best' });
   const tray = createTray({
-    icon: trayIcon, tooltip: () => `${brand.name} · hold ${spoken(hotkeys.used.talk || store.settings().hotkeys.talk)} to talk`, settings: () => store.settings(), paused: () => paused,
+    icon: trayIcon, tooltip: () => MAC_DEV ? `${brand.name} · Mac development` : `${brand.name} · hold ${spoken(hotkeys.used.talk || store.settings().hotkeys.talk)} to talk`, settings: () => store.settings(), paused: () => paused,
     on: {
       open: () => panel.open(), quick: () => overlay.send('quick:open', {}), set: (patch) => store.patch(patch),
       pause: (p) => { paused = p; registerHotkeys(); if (p) { voice.cancel(); pointAsk.close(); overlay.hide(); } else if (!store.settings().markHidden) overlay.show(); tray.update(); },
@@ -246,7 +257,9 @@ async function boot() {
       overlay.send('settings', store.settings());
       overlayReady = true;
       for (const [text, opts] of early.splice(0)) ui.notice(text, opts);
+      if (!TEST) services.reminders.start();
     },
+    onReminderDismiss: () => { if (paused || store.settings().markHidden) overlay.hide(); },
   });
 
   // ---- reacting to changes --------------------------------------------------------
@@ -261,6 +274,8 @@ async function boot() {
   folders.on('change', push);
   routines.on('change', push);
   sidecar.on('availability', push);
+  services.reminders.on('change', push);
+  powerMonitor.on('resume', services.reminders.refresh);
 
   overlay.create();
   registerHotkeys();
@@ -278,7 +293,7 @@ async function boot() {
   }
 
   // ---- the slow starts, in the background -------------------------------------------
-  if (!FLAGS.shots) {
+  if (!FLAGS.shots && !MAC_DEV) {
     sidecar.start();
     if (!TEST) {
       sidecar.on('click', () => services.noteClick());
@@ -292,6 +307,10 @@ async function boot() {
   folders.load();
   folders.refreshAll();
   if (store.settings().useClaudeCode) ai.claudeCode.available().then(push);
+  if (MAC_DEV) {
+    log('Mac development mode: computer controls, voice, hotkeys and screen watching disabled');
+    tell('Mac development mode: type to chat. Computer controls, voice and screen watching are disabled.', { tone: 'info' });
+  }
 
   const first = !store.settings().onboarded && !FLAGS.shots;
   if (first || process.argv.includes('--panel')) { panel.open(); if (first) store.patch({ onboarded: true }); }
@@ -305,6 +324,8 @@ app.on('before-quit', () => {
   if (!services) return;
   services.voice.cancel();
   services.calendar.stop();
+  services.reminders.stop();
+  powerMonitor.removeListener('resume', services.reminders.refresh);
   services.panel.quit();
   services.sidecar.stop(); services.speech.stop();
   services.overlay.destroy();

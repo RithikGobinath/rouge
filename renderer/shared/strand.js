@@ -52,9 +52,15 @@
    * tail already points and bows toward the middle of the screen, so a thread
    * from a corner sweeps in rather than hugging the edge.
    */
-  function aimAt(open, box, W, H) {
+  function aimAt(open, box, W, H, wrap) {
     const a = { x: open.x, y: open.y };
-    const b = stopPoint(box, a);
+    let ring = null;
+    if (wrap) {
+      const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
+      const rx = box.w / 2 + 14; const ry = box.h / 2 + 12;
+      ring = { cx, cy, rx, ry, angle: Math.atan2((a.y - cy) / ry, (a.x - cx) / rx) };
+    }
+    const b = ring ? { x: ring.cx + ring.rx * Math.cos(ring.angle), y: ring.cy + ring.ry * Math.sin(ring.angle) } : stopPoint(box, a);
     const span = gap(a, b) || 1;
     const ux = (b.x - a.x) / span; const uy = (b.y - a.y) / span;
     const hl = Math.hypot(open.tx, open.ty) || 1;
@@ -69,12 +75,13 @@
       c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
       c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
       mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+      ring,
     };
   }
 
   const blendPlans = (p, q, f) => {
     const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
-    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid) };
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), ring: q.ring };
   };
 
   /**
@@ -94,6 +101,17 @@
       len.push(i ? len[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) : 0);
     }
     const main = len[n];
+    if (plan.ring) {
+      const { cx, cy, rx, ry, angle } = plan.ring;
+      const count = Math.max(24, Math.ceil(TAU * Math.max(rx, ry) / STEP));
+      for (let i = 1; i <= count; i += 1) {
+        const theta = angle + TAU * i / count;
+        const x = cx + rx * Math.cos(theta); const y = cy + ry * Math.sin(theta);
+        len.push(len[len.length - 1] + Math.hypot(x - xs[xs.length - 1], y - ys[ys.length - 1]));
+        xs.push(x); ys.push(y);
+      }
+      return { n: xs.length, x: Float32Array.from(xs), y: Float32Array.from(ys), len: Float32Array.from(len), main, total: len[len.length - 1] };
+    }
     // the way it is heading as it arrives, and which side the target is on: the curl goes the other way
     let hx = b.x - c2.x; let hy = b.y - c2.y;
     const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
@@ -130,6 +148,7 @@
 
     let phase = 'rest';                              // rest | out | held | back
     let box = null;                                  // what it reaches for
+    let wrap = false; let holdMs = HOLD_MS;
     let plan = null; let earlier = null; let planAt = 0; let flat = null;     // the curve; the one it is following from; when it was set; its points
     let tail = null;                                 // the mark's open end when the plan was made
     let reach = 0; let tween = null;                 // how much is out, and what is moving it
@@ -156,7 +175,7 @@
       if (!open || !box) return false;
       const now = performance.now();
       earlier = plan ? currentPlan(now) : null;
-      plan = aimAt(open, box, W, H); planAt = now; flat = null; tail = open;
+      plan = aimAt(open, box, W, H, wrap); planAt = now; flat = null; tail = open;
       return true;
     }
     function currentPlan(now) {
@@ -296,8 +315,8 @@
       const at = Math.min(s.n - 1, Math.max(0, s.run.findIndex((l) => l >= Math.min(visible, path.main))));
       tipAt = { x: s.px[at >= 0 ? at : s.n - 1], y: s.py[at >= 0 ? at : s.n - 1] };
       if (phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
-      drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
-      if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= HOLD_MS)) { halt(); return; }
+      if (!wrap) drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
+      if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= holdMs)) { halt(); return; }
       next();
     }
 
@@ -310,8 +329,10 @@
 
     return {
       /** Let the thread out to a box (window CSS px). Asked again while it is out, it stays out and its end moves. */
-      setTarget(rect) {
+      setTarget(rect, options = {}) {
         if (!rect) return this.rewind();
+        wrap = options.wrap === true;
+        holdMs = Number.isFinite(options.holdMs) ? Math.max(0, options.holdMs) : HOLD_MS;
         box = { x: Number(rect.x) || 0, y: Number(rect.y) || 0, w: Math.max(1, Number(rect.w) || 1), h: Math.max(1, Number(rect.h) || 1) };
         inkAt = 0;
         if (!replan()) return false;

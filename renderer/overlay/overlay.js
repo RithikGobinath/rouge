@@ -9,6 +9,7 @@
     pill: $('#pill'), pillWords: $('#pill-words'), bubble: $('#bubble'), bubK: $('#bub-k'), bubText: $('#bub-text'), bubHint: $('#bub-hint'), bubSources: $('#bub-sources'), bubActions: $('#bub-actions'),
     ask: $('#askfirst'), askTitle: $('#ask-title'), askHint: $('#ask-hint'), offer: $('#offer'), offerSteps: $('#offer-steps'),
     quick: $('#quick'), quickInput: $('#quick-input'), toast: $('#toast'),
+    reminder: $('#meeting-reminder'), meetingTitle: $('#meeting-title'), meetingTime: $('#meeting-time'), meetingCountdown: $('#meeting-countdown'),
   };
 
   let settings = { markCorner: 'br', strip: false, markHidden: false, speakReplies: false };
@@ -17,6 +18,8 @@
   let speaking = false;
   let pendingBubble = null;
   let pointing = false;
+  let reminderOwnsWand = false;
+  let reminderTimer = 0;
   let askId = 0; let offerId = 0;
   let quickMode = 'command';
   let bubbleTimer = 0; let toastTimer = 0; let bubbleRaf = 0;
@@ -31,7 +34,12 @@
     if (mark) mark.setState('ready');
     if (pendingBubble) { showBubble(pendingBubble); pendingBubble = null; }
   }
-  function onRewound() { pointing = false; els.strip.classList.remove('free'); if (els.bubble.dataset.anchor === 'tip') hideBubble(); render(); }
+  function onRewound() {
+    pointing = false; reminderOwnsWand = false; els.strip.classList.remove('free');
+    if (els.bubble.dataset.anchor === 'tip') hideBubble();
+    render();
+    if (visible(els.reminder)) pointToMeetingTime();
+  }
 
   /** Turn the ribbon so the tail it lets out points at the middle of the screen, from any corner. */
   function aimMark() {
@@ -59,7 +67,7 @@
     const down = settings.strip || (a.top + a.bottom) / 2 < H / 2;
     const rightSide = !settings.strip && (a.left + a.right) / 2 > W / 2;
     let edge = down ? a.bottom + 10 : a.top - 10;
-    const stack = [els.ask, els.pill, els.quick, els.offer, els.toast];
+    const stack = [els.reminder, els.ask, els.pill, els.quick, els.offer, els.toast];
     if (els.bubble.dataset.anchor !== 'tip') stack.splice(3, 0, els.bubble);
     for (const el of stack) {
       if (!visible(el)) continue;
@@ -70,6 +78,7 @@
       edge = down ? top + h + 8 : top - 8;
     }
     if (visible(els.bubble) && els.bubble.dataset.anchor === 'tip') placeAtTip();
+    if (reminderOwnsWand && visible(els.reminder)) pointToMeetingTime();
   }
 
   /** A bubble about a pointed-at control sits at the tip of the thread, away from the control. */
@@ -241,7 +250,7 @@
   $('#offer-skip').addEventListener('click', () => { els.offer.classList.add('hidden'); bridge.offerAnswer(offerId, 'skip'); layout(); });
 
   // ---- click-through: only the UI blocks the mouse ------------------------------
-  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast';
+  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast, #meeting-reminder';
   const overUI = (x, y) => { const el = document.elementFromPoint(x, y); return Boolean(el && el.closest && el.closest(UI)); };
   let ignoring = null;
   bridge.on('cursor:probe', ({ x, y }) => { const want = !overUI(x, y); if (want !== ignoring) { ignoring = want; bridge.ignore(want); } });
@@ -298,7 +307,45 @@
   });
   bridge.on('quick:open', () => openQuick('command'));
 
+  function pointToMeetingTime() {
+    if (!strand || pointing && !reminderOwnsWand) return;
+    const rect = els.meetingTime.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const previous = strand.getTarget();
+    if (reminderOwnsWand && previous && Math.abs(previous.x - rect.x) < 0.5 && Math.abs(previous.y - rect.y) < 0.5 && Math.abs(previous.w - rect.width) < 0.5 && Math.abs(previous.h - rect.height) < 0.5) return;
+    reminderOwnsWand = true; pointing = true;
+    els.strip.classList.add('free');
+    strand.setTarget({ x: rect.x, y: rect.y, w: rect.width, h: rect.height }, { wrap: true, holdMs: 300 });
+    if (mark) mark.setState('reading');
+  }
+
+  function dismissMeeting() {
+    clearTimeout(reminderTimer);
+    els.reminder.classList.add('hidden');
+    if (reminderOwnsWand) { reminderOwnsWand = false; if (strand) strand.rewind(); }
+    layout();
+    bridge.dismissReminder();
+  }
+  $('#meeting-dismiss').addEventListener('click', dismissMeeting);
+  bridge.on('calendar:reminder', (message) => {
+    const events = (Array.isArray(message && message.events) ? message.events : [])
+      .filter((event) => event && Number.isFinite(event.startMs) && event.startMs > Date.now());
+    if (!events.length) return;
+    clearTimeout(reminderTimer);
+    const format = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    els.meetingTitle.textContent = events.map((event, i) => `${i ? format.format(new Date(event.startMs)) + ' · ' : ''}${String(event.title || 'Meeting').slice(0, 200)}`).join('\n');
+    els.meetingTime.textContent = format.format(new Date(events[0].startMs));
+    els.meetingTime.dateTime = new Date(events[0].startMs).toISOString();
+    const minutes = Math.max(1, Math.ceil((events[0].startMs - Date.now()) / 60000));
+    els.meetingCountdown.textContent = `Starts in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+    els.reminder.classList.remove('hidden');
+    layout();
+    pointToMeetingTime();
+    reminderTimer = setTimeout(dismissMeeting, 20000);
+  });
+
   function pointAt(rect) {
+    reminderOwnsWand = false;
     pointing = true; hideBubble();
     els.strip.classList.add('free');                     // the thread leaves the strip: let it out of the bar
     if (strand) strand.setTarget(rect);
@@ -311,7 +358,7 @@
   });
   bridge.on('point:clear', () => { pendingBubble = null; if (pointing) { pointing = false; if (strand) strand.rewind(); } hideBubble(); render(); });
 
-  addEventListener('resize', () => { requestAnimationFrame(() => { aimMark(); if (strand) strand.relayout(); layout(); }); });
+  addEventListener('resize', () => { requestAnimationFrame(() => { aimMark(); layout(); if (reminderOwnsWand) pointToMeetingTime(); else if (strand) strand.relayout(); }); });
 
   if (/[?&]test=1/.test(location.search)) { const s = document.createElement('script'); s.src = 'testkit.js'; document.body.appendChild(s); }
 
