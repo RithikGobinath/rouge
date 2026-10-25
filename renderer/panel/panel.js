@@ -19,6 +19,7 @@
     { id: 'anthropic', name: 'Anthropic', role: 'Haiku, Sonnet and Opus for A, B and C', url: 'https://console.anthropic.com', ph: 'Paste your Anthropic key' },
     { id: 'gemini', name: 'Gemini', role: 'Optional speech backup', url: 'https://aistudio.google.com/apikey', ph: 'Paste your Gemini key' },
     { id: 'typesafe', name: 'TypeSafe', role: 'Optional voice parsing without Claude routing', url: 'https://typesafe.ai', ph: 'Paste your TypeSafe key' },
+    { id: 'serper', name: 'Serper', role: 'Google Shopping prices for price comparison', url: 'https://serper.dev', ph: 'Paste your Serper key' },
   ];
   const MODEL_FIELDS = [['#model-anthropic-a', 'anthropicA'], ['#model-anthropic-b', 'anthropicB'], ['#model-anthropic-c', 'anthropicC'], ['#model-gemini', 'gemini']];
 

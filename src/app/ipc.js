@@ -7,7 +7,7 @@ const { ipcMain, dialog, shell, Menu } = require('electron');
 const brand = require('../brand');
 const { publicWebUrl } = require('../ai/web');
 
-const OPEN_OK = new Set(['https://typesafe.ai', 'https://aistudio.google.com/apikey', 'https://console.anthropic.com']);
+const OPEN_OK = new Set(['https://typesafe.ai', 'https://aistudio.google.com/apikey', 'https://console.anthropic.com', 'https://serper.dev']);
 const isId = (v) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1e9;
 const isName = (v) => typeof v === 'string' && v.length > 0 && v.length <= 80;
 const isRid = (v) => typeof v === 'string' && /^[a-f0-9]{4,20}$/.test(v);

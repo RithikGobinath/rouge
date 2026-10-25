@@ -61,8 +61,8 @@ function createAI({ store, folders, claudeCode, fetchImpl, getComputer, log = ()
      */
     async research(question, { system, signal } = {}) {
       if (!keys().anthropic) throw new AiError('Looking this up needs an Anthropic key under Your keys.', { code: 'no_key' });
-      const r = await route('answer', { system, user: question, goal: question, signal });
-      return { text: r.text, sources: (r.sources || []).slice(0, 12), provider: r.provider, role: r.role, model: r.model, calls: r.calls, webUsed: Boolean(r.webUsed) };
+      const r = await route('answer', { system, user: question, goal: question, signal, webSearches: 5 });
+      return { text: r.text, sources: (r.sources || []).slice(0, 12), provider: r.provider, role: r.role, model: r.model, calls: r.calls, webUsed: Boolean(r.webUsed), found: r.found || [], trace: r.trace || [] };
     },
 
     /**

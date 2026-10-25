@@ -82,19 +82,19 @@ function findUrl(snapshot) {
   try { u = new URL(raw); } catch (_) { return null; }
   if (!/^https?:$/.test(u.protocol) || u.username || u.password || !u.hostname.includes('.')) return null;
   // The query and fragment can carry a search or a session, so they are dropped here and never used.
-  return { host: u.hostname.toLowerCase().replace(/^www\./, ''), path: u.pathname, href: `${u.protocol}//${u.host}${u.pathname}` };
+  return { host: u.hostname.toLowerCase().replace(/^www\./, ''), path: u.pathname };
 }
 
 /**
  * A known store's product page, or null: searches, categories, carts and every other site.
- * @param {{title:string, url:{host:string, path:string, href:string}|null}} page
- * @returns {{name:string, store:string, url:string, key:string}|null}
+ * @param {{title:string, url:{host:string, path:string}|null}} page
+ * @returns {{name:string, store:string, key:string}|null}
  */
 function classifyPage({ title, url }) {
   const store = url && STORES.find((s) => s.host.test(url.host));
   if (!store || !store.product.test(url.path)) return null;
   const name = productName(title, store);
-  return name.length < 3 ? null : { name, store: store.name, url: url.href, key: `${store.name}|${name.toLowerCase()}` };
+  return name.length < 3 ? null : { name, store: store.name, key: `${store.name}|${name.toLowerCase()}` };
 }
 
 module.exports = { isBrowser, isPrivateTitle, isStoreTitle, findUrl, classifyPage };

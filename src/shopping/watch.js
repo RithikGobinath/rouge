@@ -24,7 +24,7 @@ function createShoppingWatch(deps) {
   const gapMs = deps.gapMs == null ? 60000 : deps.gapMs;                   // between two cards
   const cooldownMs = deps.cooldownMs || 30 * 60000;                        // before the same product is offered again
   const settleMs = deps.settleMs == null ? 600 : deps.settleMs;
-  const compare = deps.compare || createPriceCompare({ ai: deps.ai, log });
+  const compare = deps.compare || createPriceCompare({ ai: deps.ai, store, log });
   let timer = null;
   let stopped = false;
   let checking = false;
@@ -38,7 +38,10 @@ function createShoppingWatch(deps) {
   const busy = () => Boolean(deps.busy && deps.busy());
   function enabled() {
     const s = store.settings();
-    return s.shoppingOffers !== false && s.webAccess !== false && !s.markHidden && Boolean(store.keyStatus().anthropic) && (!deps.visible || deps.visible());
+    const keys = store.keyStatus();
+    // A Serper key is enough; without one the lookup is Claude's web search, which needs its key and Internet access.
+    const source = keys.serper || (keys.anthropic && s.webAccess !== false);
+    return s.shoppingOffers !== false && !s.markHidden && Boolean(source) && (!deps.visible || deps.visible());
   }
 
   function closeOffer() { if (offer) { offer.abort.abort(); offer = null; } }
