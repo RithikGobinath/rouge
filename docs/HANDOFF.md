@@ -1,13 +1,21 @@
 # Rouge — handoff
 
-Updated: 2026-10-24 (America/Los_Angeles)
-Branch: cursor/audit-fixes-27d8
+Updated: 2026-10-25 (America/Los_Angeles)
+Branch: codex/wand-unravel-wrap
 Node: 24.18.0 | Electron 45
 App: npm start (CLIPPY_VERBOSE=1 for logs)
 Tests: npm test (node --test test/**/*.test.js)
 
 ## Current task
-    None — session complete. Wand working, knot frontend built.
+Wand animation from `codex/ribbon-unravel-orbit`, brought onto main without that branch's development commands (`point a`–`point d`, `npm run wand`).
+- The upper curve of the ribbon unwinds from the knot and winds twice around the target. The last lap lies one ribbon half-width plus 4 px from the target, so it never covers the text; earlier laps sit one ribbon-width further out like a coil. (`renderer/shared/wand-geometry.js`)
+- The wand stays on the target for 4 s plus about 55 ms per character of the explanation shown with it, at most 15 s, then draws back in over 1.5 s. A longer answer arriving late extends the hold; a spent hold is never cut. (`holdFor`, `setHold`)
+- `point:target` messages marked `follow` (the control scrolled) glide the wand over without restarting its cycle, and are ignored once it has drawn in. The main process stops watching the control when the overlay reports the wand retracted (`overlay:point:retracted`) and after 45 s regardless. (`src/pointing/track.js`, `pointAsk.js`)
+- The tracker finds the same control again by name only: never a blank name, a short fragment or an element of very different size. Before this a whitespace-named element could capture the wand.
+- Auto-wand now ranks elements by how many specific details (words, prices, times) they share with the agent's reply. A one-word name needs "click X" in the reply, a name with nothing specific in it is never chosen, and the application's own name (for example the browser's "Chrome" menu button) is skipped unless the request mentioned it.
+- The computer agent's final answer is limited to about 50 words, as one JSON object, to shorten the wait before the wand points. Each model call now logs output and input tokens.
+- Known gap: meeting reminders used to end the wand in a flowing underline at the clock; the new wand ignores that option and wraps the clock instead.
+- Validation: the owner ran the app on Windows with a cheapest-flight request and confirmed it worked end to end. Other pages, the reduced-motion paths and multi-monitor DPI cases were not exercised live. The unit tests were also executed during development, including sidecar tests that drive the real desktop; do not run the full suite without meaning to.
 
 ## What's done
 - All 16 audit fixes on this branch (security, privacy, safety)

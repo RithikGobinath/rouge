@@ -37,8 +37,10 @@
     if (pendingBubble) { showBubble(pendingBubble); pendingBubble = null; }
   }
   function onRewound() {
+    if (bridge.pointRetracted) bridge.pointRetracted();   // nothing is pointed at now: the main process can stop watching that control
     pointing = false; reminderOwnsWand = false; els.strip.classList.remove('free');
-    if (els.bubble.dataset.anchor === 'tip') hideBubble();
+    if (pendingBubble) { const answer = pendingBubble; pendingBubble = null; showBubble({ ...answer, anchor: 'mark' }); }
+    else if (els.bubble.dataset.anchor === 'tip') { cancelAnimationFrame(bubbleRaf); els.bubble.dataset.anchor = 'mark'; }
     render();
     if (visible(els.reminder)) pointToSystemClock();
   }
@@ -298,6 +300,7 @@
     els.strip.classList.toggle('hidden', !settings.strip);
     (settings.strip ? els.slot : els.dock).appendChild(els.canvas);
     if (mark) { mark.setScale(settings.strip ? 0.167 : 0.2); if (settings.markHidden) mark.pause(); else mark.resume(); }
+    if (settings.markHidden && strand && strand.cancel) strand.cancel();
     render();
     requestAnimationFrame(() => { aimMark(); if (strand) strand.relayout(); layout(); });
   }
@@ -511,11 +514,18 @@
     reminderOwnsWand = false;
     pointing = true; hideBubble();
     els.strip.classList.add('free');                     // the thread leaves the strip: let it out of the bar
-    if (strand) strand.setTarget(rect);
+    if (strand && strand.setTarget(rect) === false) { pointing = false; els.strip.classList.remove('free'); render(); return; }
     if (mark) mark.setState('reading');
   }
-  bridge.on('point:target', (m) => pointAt(m.rect));
+  /** The pointed-at control moved (its window scrolled): the wand glides to it; it never starts a new cycle or comes back out once drawn in. */
+  function followTarget(rect) {
+    if (!pointing || reminderOwnsWand || !strand) return;
+    strand.setTarget(rect, { follow: true });
+  }
+  bridge.on('point:target', (m) => { if (m.follow) followTarget(m.rect); else pointAt(m.rect); });
   bridge.on('point:bubble', (b) => {
+    if (!pointing) { showBubble({ ...b, anchor: 'mark' }); return; }
+    if (strand && strand.setHold) strand.setHold(b.text);
     if (b.pending) { showBubble({ ...b, anchor: 'tip' }); return; }
     if (strand && strand.getState() === 'pointing') showBubble(b); else pendingBubble = b;
   });
