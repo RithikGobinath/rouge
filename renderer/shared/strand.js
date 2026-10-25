@@ -6,14 +6,15 @@
 // finishes in a small curl, like the end of a gift ribbon. While it travels it
 // rolls slowly about its own length so the satin catches the light, and a small
 // wave runs down it. "Reach" runs from 0 (all of it in the mark) to 1 (all of it
-// out); the mark unrolls its loop as the ribbon leaves.
+// out); the mark unrolls its loop as the ribbon leaves. Clock reminders use
+// a separate thin underline so this ribbon never crosses the time.
 //
 //   const thread = Strand.mount(canvas, mark, { onArrive, onRewound });
 //   thread.setTarget({ x, y, w, h });   thread.rewind();
 (() => {
   'use strict';
   const RB = window.SatinMaterial;
-  const { TAU, clamp, smooth, mix } = RB;
+  const { clamp, smooth, mix } = RB;
 
   const STEP = 3;               // px between samples along the path
   const SETTLE = 150;           // px over which the ribbon eases from the mark's own width and roll into its own
@@ -52,27 +53,9 @@
    * tail already points and bows toward the middle of the screen, so a thread
    * from a corner sweeps in rather than hugging the edge.
    */
-  function aimAt(open, box, W, H, wrap) {
+  function aimAt(open, box, W, H) {
     const a = { x: open.x, y: open.y };
-    let underline = null;
-    let b;
-    if (wrap) {
-      // Underline/highlight mode: draw a clear line beneath the clock box
-      // (or above it if the clock is flush with the bottom of the screen, e.g. Windows taskbar).
-      const padY = 8;
-      const sitsAtBottom = (box.y + box.h) >= (H - 20);
-      const uy = sitsAtBottom
-        ? clamp(box.y - padY, 12, H - 12)
-        : clamp(box.y + box.h + padY, 12, H - 12);
-      // Determine if mark arrives from left or right of the box center
-      const fromRight = a.x >= (box.x + box.w / 2);
-      const xStart = fromRight ? clamp(box.x + box.w + 14, 10, W - 10) : clamp(box.x - 14, 10, W - 10);
-      const xEnd = fromRight ? clamp(box.x - 14, 10, W - 10) : clamp(box.x + box.w + 14, 10, W - 10);
-      b = { x: xStart, y: uy };
-      underline = { xStart, xEnd, y: uy };
-    } else {
-      b = stopPoint(box, a);
-    }
+    const b = stopPoint(box, a);
     const span = gap(a, b) || 1;
     const ux = (b.x - a.x) / span; const uy = (b.y - a.y) / span;
     const hl = Math.hypot(open.tx, open.ty) || 1;
@@ -87,13 +70,12 @@
       c1: inside(a.x + hx * leave + sx * bow * 0.45, a.y + hy * leave + sy * bow * 0.45),
       c2: inside(b.x - ux * land + sx * bow * 0.7, b.y - uy * land + sy * bow * 0.7),
       mid: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
-      underline,
     };
   }
 
   const blendPlans = (p, q, f) => {
     const lerp = (m, n) => ({ x: mix(m.x, n.x, f), y: mix(m.y, n.y, f) });
-    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid), underline: q.underline };
+    return { a: lerp(p.a, q.a), c1: lerp(p.c1, q.c1), c2: lerp(p.c2, q.c2), b: lerp(p.b, q.b), mid: lerp(p.mid, q.mid) };
   };
 
   /**
@@ -102,7 +84,7 @@
    * goes. `main` is the length at the end of the curve, before the curl.
    */
   function flatten(plan) {
-    const { a, c1, c2, b, mid, underline } = plan;
+    const { a, c1, c2, b, mid } = plan;
     const n = Math.max(6, Math.ceil((gap(a, c1) + gap(c1, c2) + gap(c2, b)) / STEP));
     const xs = []; const ys = []; const len = [];
     for (let i = 0; i <= n; i += 1) {
@@ -113,18 +95,6 @@
       len.push(i ? len[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) : 0);
     }
     const main = len[n];
-    if (underline) {
-      const { xStart, xEnd, y } = underline;
-      const dist = Math.abs(xEnd - xStart);
-      const count = Math.max(12, Math.ceil(dist / STEP));
-      for (let i = 1; i <= count; i += 1) {
-        const t = i / count;
-        const x = xStart + (xEnd - xStart) * t;
-        len.push(len[len.length - 1] + Math.hypot(x - xs[xs.length - 1], y - ys[ys.length - 1]));
-        xs.push(x); ys.push(y);
-      }
-      return { n: xs.length, x: Float32Array.from(xs), y: Float32Array.from(ys), len: Float32Array.from(len), main, total: len[len.length - 1] };
-    }
     // the way it is heading as it arrives, and which side the target is on: the curl goes the other way
     let hx = b.x - c2.x; let hy = b.y - c2.y;
     const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
@@ -161,7 +131,7 @@
 
     let phase = 'rest';                              // rest | out | held | back
     let box = null;                                  // what it reaches for
-    let wrap = false; let holdMs = HOLD_MS;
+    let underline = false; let holdMs = HOLD_MS;
     let plan = null; let earlier = null; let planAt = 0; let flat = null;     // the curve; the one it is following from; when it was set; its points
     let tail = null;                                 // the mark's open end when the plan was made
     let reach = 0; let tween = null;                 // how much is out, and what is moving it
@@ -188,7 +158,7 @@
       if (!open || !box) return false;
       const now = performance.now();
       earlier = plan ? currentPlan(now) : null;
-      plan = aimAt(open, box, W, H, wrap); planAt = now; flat = null; tail = open;
+      plan = aimAt(open, box, W, H); planAt = now; flat = null; tail = open;
       return true;
     }
     function currentPlan(now) {
@@ -202,7 +172,7 @@
     }
 
     const moveReach = (to, ms, curve, now) => { tween = { from: reach, to, ms: Math.max(1, ms), at: now, curve }; };
-    const lengthNow = () => (plan ? (flat || (flat = flatten(plan))).total : 0);
+    const lengthNow = () => underline && box ? box.w : (plan ? (flat || (flat = flatten(plan))).total : 0);
 
     /** Four corner marks round the spot, breathing a little, over a faint wash of colour. */
     function drawSpot(now, strength) {
@@ -264,10 +234,6 @@
         phi[i] = mix(phi0, free, ease) * mix(1, 0.35, tip);
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
-        if (wrap) {
-          px[i] = clamp(px[i], 2, W - 2);
-          py[i] = clamp(py[i], 2, H - 2);
-        }
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
         rx[i] = px[i] - ty[i] * across; ry[i] = py[i] + tx[i] * across;
       }
@@ -318,9 +284,22 @@
         reach = tween.from + (tween.to - tween.from) * tween.curve(k);
         done = k >= 1;
       }
-      if (mark.setUnravel) mark.setUnravel(clamp(reach * 1.6, 0, 1));
+      if (mark.setUnravel) mark.setUnravel(underline ? 0 : clamp(reach * 1.6, 0, 1));
       if (done && phase === 'out') { phase = 'held'; heldAt = now; tween = null; onArrive(); }
       else if (done && phase === 'back') { clearAll(); halt(); onRewound(); return; }
+
+      if (underline && box) {
+        const left = clamp(box.x, 1, W - 1); const right = clamp(box.x + box.w, left, W - 1);
+        // Below the clock, or in its bottom padding when it touches the screen edge.
+        const y = clamp(box.y + box.h + 3, 1, H - 2);
+        ctx.save(); ctx.scale(ratio, ratio);
+        ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; ctx.fillStyle = RB.rgb(ink);
+        ctx.fillRect(left, y, (right - left) * reach, 2);
+        ctx.restore();
+        tipAt = { x: left + (right - left) * reach, y: y + 1 };
+        if (phase === 'held' && (calm || now - heldAt >= holdMs)) { halt(); return; }
+        next(); return;
+      }
 
       const path = plan ? currentPath(now) : null;
       if (!path || reach <= 0.001 || !tail) { next(); return; }
@@ -332,7 +311,7 @@
       const at = Math.min(s.n - 1, Math.max(0, s.run.findIndex((l) => l >= Math.min(visible, path.main))));
       tipAt = { x: s.px[at >= 0 ? at : s.n - 1], y: s.py[at >= 0 ? at : s.n - 1] };
       if (phase === 'out') { ctx.save(); ctx.scale(ratio, ratio); RB.glow(ctx, s.px[s.n - 1], s.py[s.n - 1], 15, ink, 0.6); ctx.restore(); }
-      if (!wrap) drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
+      drawSpot(now, phase === 'held' ? 1 : phase === 'out' ? smooth((reach - 0.9) / 0.1) : smooth((reach - 0.85) / 0.15));
       if (phase === 'held' && now - planAt >= MORPH_MS && (calm || now - heldAt >= holdMs)) { halt(); return; }
       next();
     }
@@ -348,7 +327,7 @@
       /** Let the thread out to a box (window CSS px). Asked again while it is out, it stays out and its end moves. */
       setTarget(rect, options = {}) {
         if (!rect) return this.rewind();
-        wrap = options.wrap === true;
+        underline = options.underline === true;
         holdMs = Number.isFinite(options.holdMs) ? Math.max(0, options.holdMs) : HOLD_MS;
         box = { x: Number(rect.x) || 0, y: Number(rect.y) || 0, w: Math.max(1, Number(rect.w) || 1), h: Math.max(1, Number(rect.h) || 1) };
         inkAt = 0;

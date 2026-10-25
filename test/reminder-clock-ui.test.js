@@ -37,7 +37,7 @@ function rig(readClock) {
 }
 const flush = async () => { await new Promise((resolve) => setImmediate(resolve)); };
 
-test('meeting popup wraps the actual system clock, yields to guidance and retracts on dismissal', async () => {
+test('meeting popup underlines the actual system clock, yields to guidance and retracts on dismissal', async () => {
   const clock = { x: 1280, y: 0, w: 160, h: 24 }; let reads = 0;
   const r = rig(async () => { reads += 1; return clock; });
   await flush();
@@ -47,7 +47,8 @@ test('meeting popup wraps the actual system clock, yields to guidance and retrac
   assert.equal(r.targets.length, 1, 'active guidance keeps priority');
   r.events.get('point:clear')();
   assert.deepEqual(r.targets.at(-1).rect, clock);
-  assert.equal(r.targets.at(-1).options.wrap, true);
+  assert.equal(r.targets.at(-1).options.underline, true);
+  assert.equal(r.targets.at(-1).options.wrap, undefined);
   r.elements.get('#meeting-dismiss').handlers.get('click')();
   assert.equal(r.elements.get('#meeting-reminder').classList.contains('hidden'), true);
   assert.equal(r.timers.size, 0);

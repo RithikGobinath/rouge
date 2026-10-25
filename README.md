@@ -34,7 +34,7 @@ rectangles supplied by the computer agent also highlight without vision;
 the explicit point-and-ask hotkey still uses its existing visual explanation.
 
 Meeting reminders read the existing local `calendar.json` and alert 15 minutes
-before timed events, wrapping the wand around the computer's current-time clock. They
+before timed events, drawing a thin underline beneath the computer's current-time clock. They
 also work in Mac development mode without any model. See
 [meeting reminder setup and behavior](docs/MEETING-REMINDERS.md) for the calendar
 path and validation details.

@@ -36,14 +36,16 @@ retries loading it automatically.
   showing the actual remaining minutes. Meetings that have already started,
   cancelled/declined events, and all-day events are skipped.
 - Meetings due together share a compact popup with the title, meeting start time,
-  and actual minutes remaining. The wand wraps around the **computer's system
-  clock**, drawing attention to the current time being 15 minutes before the
+  and actual minutes remaining. The wand draws a thin underline beneath the
+  **computer's system clock**, drawing attention to the current time being 15 minutes before the
   meeting. The popup's start time is never a wand target. The popup dismisses
   after 20 seconds or with Dismiss; the wand retracts with it. Existing guidance
   keeps priority; the reminder borrows the wand once that guidance retracts.
 - The overlay covers the full primary display so the wand can reach its menu
   bar or taskbar. Cards and the companion still use the usable work area.
-  The clock loop stays within the display and stops animation frames once settled.
+  The underline is a stationary two-pixel stroke below the clock, with no loop,
+  incoming ribbon, shadow or glow across the digits. At the bottom screen edge
+  it uses the clock control's bottom padding. Animation frames stop once drawn.
 - macOS: a tiny native reader queries visible Control Center menu-window bounds
   once per reminder (and again if display geometry changes). It identifies the
   [clock pinned to the right end of the primary menu bar](https://support.apple.com/en-gb/guide/mac-help/mchlp1446/mac) without reading window
@@ -93,11 +95,11 @@ specified start. Repeating the same time does not add a duplicate. Test events
 are removed when Rouge quits; expired events are pruned on the next command
 or calendar refresh. No extra watcher or timer is created for this command.
 
-The new scheduler and wrapped-strand checks use synthetic local calendar data,
+The new scheduler and clock-underline checks use synthetic local calendar data,
 fake clocks and a canvas stub. They exercise the lead time, simultaneous events,
 file changes, restart deduplication, wake recovery, DST, invalid input, watcher
 cleanup, journal errors, system-clock coordinate conversion, dismissal races,
-priority over the reminder, and edge-safe animation settling without live input
+priority over the reminder, and thin underline placement, retraction and animation settling without live input
 or API calls. The clock reader compiles on this Mac. A live lookup in the running
 Rouge process now resolves a valid region at the menu-bar time instead of
 returning no target. Native helper checks cover three display sizes and a
