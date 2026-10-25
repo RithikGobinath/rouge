@@ -28,6 +28,7 @@ const { createApps } = require('./actions/apps');
 const { createExecutor } = require('./actions/executor');
 const { createComputerController } = require('./computer/controller');
 const { createWinSidecar } = require('./win/sidecar');
+const { createUploadCapture } = require('./uploads/capture');
 const { createSpeech } = require('./voice/speech');
 const { createVoice } = require('./voice/session');
 const { createJev } = require('./voice/jev');
@@ -88,6 +89,7 @@ function build() {
   const folders = createFolders({ dir: path.join(dir, 'folders'), log });
   const apps = createApps({ log });
   const sidecar = createWinSidecar({ log, ignorePid: process.pid });
+  const uploads = createUploadCapture({ log });
   const speech = createSpeech({ log });
   let computer = null;
   const ai = createAI({ store, folders, log, getComputer: () => computer });
@@ -145,7 +147,7 @@ function build() {
   };
   const calendar = createCalendarWatch(calendarDeps);
   voiceDeps.calendar = calendar;
-  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, noteClick: () => { calendarClicks += 1; }, paths, getJev };
+  return { store, routines, folders, apps, sidecar, uploads, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, noteClick: () => { calendarClicks += 1; }, paths, getJev };
 }
 
 function iconImage() {
@@ -200,7 +202,7 @@ async function boot() {
       },
       point: () => { voice.cancel(); pointAsk.trigger(); },
       toggle: () => { store.patch({ markHidden: !store.settings().markHidden }); },
-      panic: () => { voice.cancel(); pointAsk.close(); ui.closeAll(); ui.state('idle'); store.patch({ markHidden: true }); },
+      panic: () => { services.uploads.stop(); voice.cancel(); pointAsk.close(); ui.closeAll(); ui.state('idle'); store.patch({ markHidden: true }); },
     },
   });
   const registerHotkeys = () => {
@@ -225,7 +227,7 @@ async function boot() {
     icon: trayIcon, tooltip: () => `${brand.name} · hold ${spoken(hotkeys.used.talk || store.settings().hotkeys.talk)} to talk`, settings: () => store.settings(), paused: () => paused,
     on: {
       open: () => panel.open(), quick: () => overlay.send('quick:open', {}), set: (patch) => store.patch(patch),
-      pause: (p) => { paused = p; registerHotkeys(); if (p) { voice.cancel(); pointAsk.close(); overlay.hide(); } else if (!store.settings().markHidden) overlay.show(); tray.update(); },
+      pause: (p) => { paused = p; registerHotkeys(); if (p) { services.uploads.stop(); voice.cancel(); pointAsk.close(); overlay.hide(); } else { if (!TEST && process.platform === 'win32') services.uploads.start(); if (!store.settings().markHidden) overlay.show(); } tray.update(); },
       quit: () => app.quit(),
     },
   });
@@ -280,6 +282,7 @@ async function boot() {
   // ---- the slow starts, in the background -------------------------------------------
   if (!FLAGS.shots) {
     sidecar.start();
+    if (!TEST && process.platform === 'win32') services.uploads.start();
     if (!TEST) {
       sidecar.on('click', () => services.noteClick());
       sidecar.watch([], true, false, 'calendar').catch(() => {});
@@ -305,6 +308,7 @@ app.on('before-quit', () => {
   if (!services) return;
   services.voice.cancel();
   services.calendar.stop();
+  services.uploads.stop();
   services.panel.quit();
   services.sidecar.stop(); services.speech.stop();
   services.overlay.destroy();
@@ -313,3 +317,4 @@ app.on('will-quit', () => { const { globalShortcut } = require('electron'); glob
 
 app.whenReady().then(boot).catch((e) => { log(`boot failed: ${e.stack || e.message}`); app.exit(1); });
 void BrowserWindow;
+
