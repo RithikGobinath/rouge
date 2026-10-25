@@ -8,6 +8,7 @@ const EVENTS = new Set([
   'settings', 'cursor:probe', 'quick:open',
   'ui:state', 'ui:transcript', 'ui:level', 'ui:say', 'ui:notice', 'ui:ask', 'ui:ask:close', 'ui:offer', 'ui:offer:close', 'ui:speak',
   'point:target', 'point:bubble', 'point:clear', 'test:backdrop',
+  'autofill:review', 'autofill:close',
 ]);
 
 contextBridge.exposeInMainWorld('overlayApi', {
@@ -24,4 +25,6 @@ contextBridge.exposeInMainWorld('overlayApi', {
   menu: () => ipcRenderer.send('overlay:menu'),
   focusRequest: () => ipcRenderer.invoke('overlay:focus'),
   blurRequest: () => ipcRenderer.send('overlay:blur'),
+  autofillConfirm: (id, fields) => ipcRenderer.send('autofill:confirm', { id: Number(id) || 0, fields: Array.isArray(fields) ? fields : [] }),
+  autofillCancel: (id) => ipcRenderer.send('autofill:cancel', { id: Number(id) || 0 }),
 });

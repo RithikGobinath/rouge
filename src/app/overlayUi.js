@@ -6,12 +6,14 @@
 
 const ASK_TIMEOUT_MS = 45000;
 const OFFER_TIMEOUT_MS = 14000;
+const REVIEW_TIMEOUT_MS = 120000;   // 2 min — autofill review needs time to read
 
 /** @param {{overlay:{send:(c:string,d:any)=>void}}} deps */
 function createOverlayUi({ overlay }) {
   let nextId = 1;
   const asks = new Map();
   const offers = new Map();
+  const reviews = new Map();
   let levelAt = 0;
 
   function question(map, channel, closeChannel, payload, timeoutMs, onTimeout) {
@@ -49,8 +51,35 @@ function createOverlayUi({ overlay }) {
     offerRoutine: ({ labels }) => question(offers, 'ui:offer', 'ui:offer:close', { labels: (labels || []).slice(0, 8) }, OFFER_TIMEOUT_MS, 'skip'),
     answerOffer(id, choice) { const f = offers.get(id); if (f) f(choice === 'keep' ? 'keep' : 'skip'); },
 
+    /**
+     * Show the per-field autofill confirmation card.
+     * Resolves with the accepted [{label,value}] array, or null on cancel/timeout.
+     * @param {{fields:Array<{label:string,value:string}>}} payload
+     * @returns {Promise<Array|null>}
+     */
+    review({ fields }) {
+      const id = nextId++;
+      return new Promise((resolve) => {
+        const finish = (accepted) => {
+          if (!reviews.delete(id)) return;
+          clearTimeout(timer);
+          overlay.send('autofill:close', { id });
+          resolve(accepted);
+        };
+        const timer = setTimeout(() => finish(null), REVIEW_TIMEOUT_MS);
+        reviews.set(id, finish);
+        overlay.send('autofill:review', { id, fields: (fields || []).slice(0, 30) });
+      });
+    },
+    answerReview(id, fields) { const f = reviews.get(id); if (f) f(Array.isArray(fields) && fields.length ? fields : null); },
+    cancelReview(id) { const f = reviews.get(id); if (f) f(null); },
+
     /** Panic: answer everything pending with "no". */
-    closeAll() { for (const f of [...asks.values()]) f(false); for (const f of [...offers.values()]) f('skip'); },
+    closeAll() {
+      for (const f of [...asks.values()]) f(false);
+      for (const f of [...offers.values()]) f('skip');
+      for (const f of [...reviews.values()]) f(null);
+    },
     pending: () => ({ asks: asks.size, offers: offers.size }),
   };
 }

@@ -27,6 +27,8 @@ function registerIpc(c) {
   ipcMain.on('overlay:ready', (e) => { if (fromOverlay(e)) { c.overlay.send('settings', c.store.settings()); c.onOverlayReady && c.onOverlayReady(); } });
   ipcMain.on('overlay:ignore', (e, v) => { if (fromOverlay(e) && typeof v === 'boolean') c.overlay.setIgnore(v); });
   ipcMain.on('overlay:ask', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.answerAsk(m.id, m.yes === true); });
+  ipcMain.on('autofill:confirm', (e, m) => { if (fromOverlay(e) && m && isId(m.id) && Array.isArray(m.fields)) c.ui.answerReview(m.id, m.fields.slice(0, 30)); });
+  ipcMain.on('autofill:cancel', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.cancelReview(m.id); });
   ipcMain.on('overlay:offer', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.answerOffer(m.id, m.choice); });
   ipcMain.on('overlay:text', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.onCommandText(text.trim().slice(0, 600)); });
   ipcMain.on('overlay:point:more', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.pointAsk.followUp(text); });

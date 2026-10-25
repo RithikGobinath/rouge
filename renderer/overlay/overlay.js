@@ -8,6 +8,7 @@
     dock: $('#mark-dock'), canvas: $('#mark-canvas'), strip: $('#strip'), slot: $('#strip-slot'), word: $('#strip-word'), line: $('#strip-line'),
     pill: $('#pill'), pillWords: $('#pill-words'), bubble: $('#bubble'), bubK: $('#bub-k'), bubText: $('#bub-text'), bubHint: $('#bub-hint'), bubSources: $('#bub-sources'), bubActions: $('#bub-actions'),
     ask: $('#askfirst'), askTitle: $('#ask-title'), askHint: $('#ask-hint'), offer: $('#offer'), offerSteps: $('#offer-steps'),
+    autofillCard: $('#autofill-card'), autofillTitle: $('#autofill-title'), autofillList: $('#autofill-list'),
     quick: $('#quick'), quickInput: $('#quick-input'), toast: $('#toast'),
   };
 
@@ -17,7 +18,7 @@
   let speaking = false;
   let pendingBubble = null;
   let pointing = false;
-  let askId = 0; let offerId = 0;
+  let askId = 0; let offerId = 0; let autofillId = 0;
   let quickMode = 'command';
   let bubbleTimer = 0; let toastTimer = 0; let bubbleRaf = 0;
 
@@ -59,7 +60,7 @@
     const down = settings.strip || (a.top + a.bottom) / 2 < H / 2;
     const rightSide = !settings.strip && (a.left + a.right) / 2 > W / 2;
     let edge = down ? a.bottom + 10 : a.top - 10;
-    const stack = [els.ask, els.pill, els.quick, els.offer, els.toast];
+    const stack = [els.ask, els.autofillCard, els.pill, els.quick, els.offer, els.toast];
     if (els.bubble.dataset.anchor !== 'tip') stack.splice(3, 0, els.bubble);
     for (const el of stack) {
       if (!visible(el)) continue;
@@ -241,7 +242,7 @@
   $('#offer-skip').addEventListener('click', () => { els.offer.classList.add('hidden'); bridge.offerAnswer(offerId, 'skip'); layout(); });
 
   // ---- click-through: only the UI blocks the mouse ------------------------------
-  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast';
+  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #autofill-card, #offer, #quick, #toast';
   const overUI = (x, y) => { const el = document.elementFromPoint(x, y); return Boolean(el && el.closest && el.closest(UI)); };
   let ignoring = null;
   bridge.on('cursor:probe', ({ x, y }) => { const want = !overUI(x, y); if (want !== ignoring) { ignoring = want; bridge.ignore(want); } });
@@ -297,6 +298,52 @@
     speechSynthesis.speak(u);
   });
   bridge.on('quick:open', () => openQuick('command'));
+
+  // ---- autofill review card ---------------------------------------------------
+  function hideAutofill() { els.autofillCard.classList.add('hidden'); els.autofillList.replaceChildren(); layout(); }
+
+  function buildAutofillList(fields) {
+    els.autofillList.replaceChildren();
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      const row = document.createElement('div'); row.className = 'autofill-row';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = `af-cb-${i}`; cb.checked = true;
+      const lbl = document.createElement('label'); lbl.htmlFor = `af-cb-${i}`;
+      const fieldSpan = document.createElement('span'); fieldSpan.className = 'autofill-field'; fieldSpan.textContent = f.label;
+      const valSpan = document.createElement('span'); valSpan.className = 'autofill-value'; valSpan.textContent = f.value;
+      lbl.appendChild(fieldSpan); lbl.appendChild(valSpan);
+      row.appendChild(cb); row.appendChild(lbl);
+      els.autofillList.appendChild(row);
+    }
+  }
+
+  $('#autofill-go').addEventListener('click', () => {
+    const rows = els.autofillList.querySelectorAll('.autofill-row');
+    const accepted = [];
+    rows.forEach((row, i) => {
+      const cb = row.querySelector('input[type="checkbox"]');
+      if (cb && cb.checked) {
+        const field = row.querySelector('.autofill-field');
+        const val = row.querySelector('.autofill-value');
+        if (field && val) accepted.push({ label: field.textContent, value: val.textContent });
+      }
+    });
+    hideAutofill();
+    bridge.autofillConfirm(autofillId, accepted);
+  });
+
+  $('#autofill-cancel').addEventListener('click', () => {
+    hideAutofill();
+    bridge.autofillCancel(autofillId);
+  });
+
+  bridge.on('autofill:review', (m) => {
+    autofillId = m.id;
+    buildAutofillList(m.fields || []);
+    els.autofillCard.classList.remove('hidden');
+    layout();
+  });
+  bridge.on('autofill:close', (m) => { if (m.id === autofillId) hideAutofill(); });
 
   function pointAt(rect) {
     pointing = true; hideBubble();

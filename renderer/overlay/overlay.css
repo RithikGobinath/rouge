@@ -66,6 +66,14 @@ body.mark-hidden .mark-dock, body.mark-hidden .strip { display: none; }
 .a button.y { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .a button.y:hover { background: #3a3340; }
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; max-width: 420px; font-size: 13px; }
+.autofill-card { max-width: 400px; }
+.autofill-list { margin: 8px 0 2px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.autofill-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(31,26,34,.08); }
+.autofill-row:last-child { border-bottom: none; }
+.autofill-row input[type="checkbox"] { flex-shrink: 0; margin-top: 2px; accent-color: var(--red); cursor: pointer; }
+.autofill-row label { flex: 1; min-width: 0; cursor: pointer; }
+.autofill-field { display: block; font-size: 11px; color: var(--mute); text-transform: uppercase; letter-spacing: .08em; }
+.autofill-value { display: block; font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .offer .a { margin: 0; }
 .offer .h { flex-basis: 100%; margin-top: 0; }
 .offer .h:empty { display: none; }

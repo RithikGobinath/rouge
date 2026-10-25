@@ -48,6 +48,17 @@
     <input id="quick-input" type="text" placeholder="Tell me what to do, or ask" spellcheck="false" autocomplete="off" maxlength="600">
   </div>
 
+  <!-- Autofill: per-field confirmation card -->
+  <div id="autofill-card" class="gl card autofill-card hidden" role="dialog" aria-label="Fill form fields">
+    <div class="k">Fill it?</div>
+    <div id="autofill-title" class="t">Review fields to fill</div>
+    <div id="autofill-list" class="autofill-list"></div>
+    <div class="a">
+      <button id="autofill-go" type="button" class="y">Fill selected</button>
+      <button id="autofill-cancel" type="button">Cancel</button>
+    </div>
+  </div>
+
   <div id="toast" class="gl toast hidden" role="status"></div>
 
   <script src="../shared/ribbon.js"></script>

@@ -227,6 +227,7 @@ function createVoice(d) {
     let actions = clause.action ? [clause.action] : null;
     let completion = null;
     if (d.calendar && await d.calendar.checkText(clause.text)) return true;
+    if (d.profile && d.profile.checkUpdate(clause.text, (t, o) => d.ui.notice(t, o))) return true;
     if (usesClaudeRouting()) {
       // One Haiku request owns the complete request; no other model runs first.
       const m = await askModel(clause.text, ctx);

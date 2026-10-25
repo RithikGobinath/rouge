@@ -44,6 +44,10 @@ const { createPanel } = require('./app/panel');
 const { createTray } = require('./app/tray');
 const { registerIpc } = require('./app/ipc');
 const { createKnotWindow } = require('./app/knotWindow');
+const profile = require('./profile');
+const { createDetector } = require('./autofill/detector');
+const { createAutofill } = require('./autofill/index');
+const { createExecutor: createAutofillExecutor } = require('./autofill/executor');
 
 const log = createLog(app.getPath('userData'));
 let services = null;
@@ -82,6 +86,7 @@ async function grabCalendarFrame(sidecar, overlay) {
 
 function build() {
   const dir = app.getPath('userData');
+  profile.init(dir);    // seed profile.json into userData on first run
   const cipher = { available: () => safeStorage.isAsyncEncryptionAvailable(), encrypt: (s) => safeStorage.encryptStringAsync(s), decrypt: async (b) => (await safeStorage.decryptStringAsync(b)).result };
   const store = createStore({ dir, cipher });
   const routines = createRoutines({ file: path.join(dir, 'routines.json') });
@@ -145,7 +150,25 @@ function build() {
   };
   const calendar = createCalendarWatch(calendarDeps);
   voiceDeps.calendar = calendar;
-  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, noteClick: () => { calendarClicks += 1; }, paths, getJev };
+  voiceDeps.profile = profile;    // voice session checks for profile-update utterances
+
+  // Autofill: form detector + fill orchestrator.
+  const autofillExecutor = createAutofillExecutor({ sidecar, log });
+  const autofill = createAutofill({
+    profile, voice, ai, log,
+    ui: { review: (p) => ui.review(p), notice: (t, o) => ui.notice(t, o) },
+    executor: autofillExecutor,
+  });
+  const detector = createDetector({
+    sidecar,
+    busy: () => voice.active || voice.asking,
+    log,
+    onFormDetected: (formInfo) => {
+      autofill.offer(formInfo).catch((e) => log(`autofill.offer: ${e.message}`));
+    },
+  });
+
+  return { store, routines, folders, apps, sidecar, speech, ai, overlay, ui, panel, executor, computer, voice, pointAsk, calendar, detector, autofill, noteClick: () => { calendarClicks += 1; }, paths, getJev };
 }
 
 function iconImage() {
@@ -265,6 +288,9 @@ async function boot() {
   overlay.create();
   registerHotkeys();
   if (store.settings().markHidden) overlay.hide();
+
+  // Start the form detector (polls every 2 s when sidecar is available).
+  if (!TEST) services.detector.start();
 
   // Knot companion window (built from ROUGE_BACKEND_HANDOFF.md spec) is available
   // but not shown alongside the ribbon by default. Re-enable when the UI design
