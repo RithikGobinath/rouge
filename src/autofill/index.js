@@ -125,7 +125,7 @@ function createAutofill({ profile, voice, ai, ui, log }) {
     try {
       const fieldList = accepted.map((f) => `- ${f.label}: ${f.value}`).join('\n');
       const cmd = [
-        `Fill the following form fields on the current web page. Match each by its visible label.`,
+        `Use the browser on screen to fill these form fields. Match each field by its visible label.`,
         `Do NOT click Submit, Continue, or Next.\n`,
         fieldList,
       ].join('\n');
