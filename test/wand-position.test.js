@@ -18,6 +18,7 @@ test('positions stay inside the overlay at normal and tiny sizes', () => {
   assert.deepEqual(positionTarget('please move the wand to the middle', { width: 1440, height: 900 }).rect, { x: 700, y: 430, w: 40, h: 40 });
   for (const text of ['explain the top left corner', 'point to top left and click', 'point to the close button', '__proto__']) assert.equal(positionTarget(text, { width: 1440, height: 900 }), null);
   assert.equal(positionTarget('top left', { width: 0, height: 900 }), null);
+  assert.deepEqual(positionTarget('top left', { x: 0, y: 24, width: 1440, height: 800 }).rect, { x: 16, y: 40, w: 40, h: 40 });
 });
 
 test('typed wand requests and known rectangles never touch AI, capture or computer controls', async () => {

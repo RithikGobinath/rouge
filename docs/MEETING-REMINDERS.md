@@ -2,7 +2,8 @@
 
 Rouge reads the same local `calendar.json` snapshot used by the calendar-conflict
 feature. It never modifies or uploads that file. No model, screen capture,
-computer-control helper, browser connection, or new dependency is needed.
+browser connection, or new dependency is needed. Clock targeting reads native
+window geometry only and never performs input.
 
 ## Calendar location
 
@@ -34,11 +35,30 @@ retries loading it automatically.
 - Startup or wake inside the 15-minute window produces one catch-up reminder
   showing the actual remaining minutes. Meetings that have already started,
   cancelled/declined events, and all-day events are skipped.
-- Meetings due together share a compact popup. It displays the title and local
-  start time; the existing strand wraps around that time, then stops requesting
-  animation frames once settled. The popup dismisses after 20 seconds or with
-  Dismiss. Existing wand guidance keeps priority; the reminder stays visible and
-  borrows the wand once that guidance retracts.
+- Meetings due together share a compact popup with the title, meeting start time,
+  and actual minutes remaining. The wand wraps around the **computer's system
+  clock**, drawing attention to the current time being 15 minutes before the
+  meeting. The popup's start time is never a wand target. The popup dismisses
+  after 20 seconds or with Dismiss; the wand retracts with it. Existing guidance
+  keeps priority; the reminder borrows the wand once that guidance retracts.
+- The overlay covers the full primary display so the wand can reach its menu
+  bar or taskbar. Cards and the companion still use the usable work area.
+  The clock loop stays within the display and stops animation frames once settled.
+- macOS: a tiny native reader queries visible Control Center menu-window bounds
+  once per reminder (and again if display geometry changes). It identifies the
+  [clock pinned to the right end of the primary menu bar](https://support.apple.com/en-gb/guide/mac-help/mchlp1446/mac) without reading window
+  titles, taking screenshots, requesting permissions, or using a model. There
+  is no resident process or polling timer. `npm run dev:mac` compiles the helper
+  once with Apple's Command Line Tools and reuses it until its source changes;
+  its binary stays in the development app-data directory, outside the repo.
+- Windows: the existing sidecar reads the native taskbar clock rectangle, with
+  UI Automation for the Windows 11 clock. Physical pixels convert to overlay
+  coordinates using the existing Electron DPI conversion.
+- A hidden, missing, ambiguous or off-display clock produces the popup with
+  “System clock unavailable” and no wand target. Rouge never guesses a corner,
+  substitutes the popup time, moves the mouse, or opens the clock. This geometry
+  lookup uses the modern macOS clock placement and needs owner visual validation
+  on the actual OS; customized taskbars/menu bars may not expose a usable clock.
 - A small journal in the app-data directory stores occurrence hashes and start
   times, preventing repeated reminders across restarts. It contains no titles.
   Entries are pruned when the journal is next saved. If saving fails, reminders
@@ -70,6 +90,9 @@ or calendar refresh. No extra watcher or timer is created for this command.
 The new scheduler and wrapped-strand checks use synthetic local calendar data,
 fake clocks and a canvas stub. They exercise the lead time, simultaneous events,
 file changes, restart deduplication, wake recovery, DST, invalid input, watcher
-cleanup, journal errors, and animation settling without live input or API calls.
+cleanup, journal errors, system-clock coordinate conversion, dismissal races,
+priority over the reminder, and edge-safe animation settling without live input
+or API calls. The clock reader compiles on this Mac. Live menu-bar and Windows
+taskbar placement checks remain for the owner.
 Live notification timing against the owner's actual calendar still depends on
 that private snapshot being present at the configured path.

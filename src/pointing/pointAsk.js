@@ -104,7 +104,7 @@ function createPointAsk(d) {
   return {
     /** A local position request works without keys, a model, screen capture or computer control. */
     pointPosition(text) {
-      const bounds = d.overlay.win && d.overlay.win.getBounds();
+      const bounds = d.overlay.usableArea || (d.overlay.win && d.overlay.win.getBounds());
       const target = positionTarget(text, bounds);
       if (!target) return false;
       this.close();

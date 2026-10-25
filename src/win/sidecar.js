@@ -50,6 +50,7 @@ function createWinSidecar(opts = {}) {
     /** @returns {Promise<FgWindow>} the window the user is working in, never one of ours */
     fg: () => call('fg', { ignorePid }),
     cursor: () => call('cursor'),
+    clock: () => call('system.clock', {}, 2000),
     /** @returns {Promise<{element: UiaElement|null, hwnd:number, window?:{title:string,pid:number}}>} */
     fromPoint: (x, y) => warm(() => call('uia.frompoint', { x, y, ignorePid }, 5000), (r) => !r.element && r.hwnd !== 0),
     uiaList: (hwnd, max = 150) => warm(() => call('uia.list', { hwnd, max }, 6000), (r) => r.elements.length === 0),

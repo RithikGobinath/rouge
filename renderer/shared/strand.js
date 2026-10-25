@@ -57,7 +57,9 @@
     let ring = null;
     if (wrap) {
       const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
-      const rx = box.w / 2 + 14; const ry = box.h / 2 + 12;
+      // System clocks sit against a screen edge: keep the loop visible, inside its padded native bounds.
+      const rx = Math.max(1, Math.min(box.w / 2 + 14, cx - 3, W - cx - 3));
+      const ry = Math.max(1, Math.min(box.h / 2 + 12, cy - 3, H - cy - 3));
       ring = { cx, cy, rx, ry, angle: Math.atan2((a.y - cy) / ry, (a.x - cx) / rx) };
     }
     const b = ring ? { x: ring.cx + ring.rx * Math.cos(ring.angle), y: ring.cy + ring.ry * Math.sin(ring.angle) } : stopPoint(box, a);
@@ -251,6 +253,10 @@
         phi[i] = mix(phi0, free, ease) * mix(1, 0.35, tip);
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
+        if (wrap) {
+          px[i] = clamp(px[i], across + 1, W - across - 1);
+          py[i] = clamp(py[i], across + 1, H - across - 1);
+        }
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
         rx[i] = px[i] - ty[i] * across; ry[i] = py[i] + tx[i] * across;
       }

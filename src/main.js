@@ -40,6 +40,7 @@ const { prepareCache } = require('./calendar/conflict');
 const { createCalendarWatch, startVisionModel } = require('./calendar/watch');
 const { createMeetingReminders } = require('./calendar/reminders');
 const { createTestCalendar } = require('./calendar/testCalendar');
+const { systemClockRect } = require('./calendar/systemClock');
 const { createOverlay } = require('./app/overlay');
 const { createOverlayUi } = require('./app/overlayUi');
 const { createHotkeys, spoken } = require('./app/hotkeys');
@@ -247,6 +248,8 @@ async function boot() {
 
   registerIpc({
     store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, quit: () => app.quit(),
+    clockRect: () => systemClockRect({ helper: path.join(app.getPath('userData'), 'bin', 'menu-clock'), sidecar,
+      display: screen.getPrimaryDisplay().bounds, overlayBounds: overlay.win.getBounds(), physicalToDip: (p) => screen.screenToDipPoint(p) }),
     onCommandText: (text) => {
       voice.runText(text).then((ok) => {
         if (!ok) ui.notice('I am still answering your previous request.', { tone: 'info' });

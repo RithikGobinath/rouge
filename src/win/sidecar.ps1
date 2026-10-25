@@ -130,6 +130,8 @@ namespace Sidecar {
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern bool EnumWindows(Visit each, IntPtr state);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string title);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int how);
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
@@ -162,6 +164,21 @@ namespace Sidecar {
     public static int[] Bounds(IntPtr h) { Box b; return GetWindowRect(h, out b) ? new int[] { b.L, b.T, b.R, b.B } : null; }
     public static bool Cloaked(IntPtr h) { int v; return DwmGetWindowAttribute(h, 14, out v, 4) == 0 && v != 0; }
     public static bool IsPinned(IntPtr h) { return (GetWindowLong(h, ExStyle) & 0x8) != 0; }
+
+    public static int[] ClockBounds() {
+      IntPtr tray = FindWindow("Shell_TrayWnd", null);
+      if (tray == IntPtr.Zero || !IsWindowVisible(tray)) return null;
+      IntPtr notify = FindWindowEx(tray, IntPtr.Zero, "TrayNotifyWnd", null);
+      IntPtr clock = FindWindowEx(notify, IntPtr.Zero, "TrayClockWClass", null);
+      if (notify != IntPtr.Zero && clock != IntPtr.Zero && IsWindowVisible(clock)) return Bounds(clock);
+      // Windows 11 exposes the clock through the taskbar's UI Automation tree.
+      AutomationElement root = AutomationElement.FromHandle(tray);
+      var match = root.FindFirst(TreeScope.Descendants,
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTray.DateTimeIcon"));
+      if (match == null || match.Current.IsOffscreen) return null;
+      var r = match.Current.BoundingRectangle;
+      return r.IsEmpty ? null : new int[] { (int)r.Left, (int)r.Top, (int)r.Right, (int)r.Bottom };
+    }
 
     /// <summary>The name of a process, and where its program is (empty when Windows will not say).</summary>
     public static string[] Program(uint pid) {
@@ -772,6 +789,12 @@ function Describe-Front([uint32]$ignore) {
 
 # ---- what each operation does ---------------------------------------------------------
 $Ops = @{}
+
+$Ops['system.clock'] = { param($r)
+  $b = [Sidecar.Desk]::ClockBounds()
+  if ($b) { @{ rect = (As-Rect $b[0] $b[1] ($b[2] - $b[0]) ($b[3] - $b[1])) } }
+  else { @{ rect = $null } }
+}
 
 $Ops['ping'] = { param($r) @{ ok = $true; pid = $PID; ps = $PSVersionTable.PSVersion.ToString() } }
 $Ops['fg'] = { param($r) Describe-Front (Pid-Of $r) }

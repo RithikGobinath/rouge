@@ -23,7 +23,7 @@ function positionTarget(text, bounds) {
   const padX = Math.min(16, (width - size) / 2); const padY = Math.min(16, (height - size) / 2);
   return {
     label: name.charAt(0).toUpperCase() + name.slice(1),
-    rect: { x: padX + (width - size - 2 * padX) * at[0], y: padY + (height - size - 2 * padY) * at[1], w: size, h: size },
+    rect: { x: (bounds.x || 0) + padX + (width - size - 2 * padX) * at[0], y: (bounds.y || 0) + padY + (height - size - 2 * padY) * at[1], w: size, h: size },
   };
 }
 

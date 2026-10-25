@@ -6,6 +6,7 @@ const { spawnSync } = require('node:child_process');
 
 assert.equal(process.platform, 'darwin', 'Use npm start on Windows.');
 const root = path.join(__dirname, '..');
+require('./build-mac-clock').buildMacClock(process.env.CLIPPY_USER_DATA || path.resolve(root, '..', 'rouge-user-data'));
 const bundle = path.resolve(path.dirname(require('electron')), '..', '..');
 const resources = path.join(bundle, 'Contents', 'Resources');
 assert.ok(bundle.endsWith('.app') && fs.existsSync(resources), 'Install the macOS Electron runtime with npm ci first.');

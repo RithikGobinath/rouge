@@ -8,7 +8,7 @@ const EVENTS = new Set([
   'settings', 'cursor:probe', 'quick:open',
   'ui:state', 'ui:transcript', 'ui:level', 'ui:say', 'ui:notice', 'ui:ask', 'ui:ask:close', 'ui:offer', 'ui:offer:close', 'ui:speak',
   'point:target', 'point:bubble', 'point:clear', 'test:backdrop',
-  'calendar:reminder',
+  'calendar:reminder', 'overlay:area',
 ]);
 
 contextBridge.exposeInMainWorld('overlayApi', {
@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('overlayApi', {
   pointFollowUp: (text) => ipcRenderer.send('overlay:point:more', String(text || '').slice(0, 1000)),
   pointClose: () => ipcRenderer.send('overlay:point:close'),
   dismissReminder: () => ipcRenderer.send('overlay:reminder:dismiss'),
+  clockRect: () => ipcRenderer.invoke('overlay:clock'),
   openSource: (url) => ipcRenderer.invoke('overlay:source:open', typeof url === 'string' ? url.slice(0, 2048) : ''),
   menu: () => ipcRenderer.send('overlay:menu'),
   focusRequest: () => ipcRenderer.invoke('overlay:focus'),

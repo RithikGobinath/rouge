@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-test('wrapped strand surrounds the time and stops requesting frames after settling', () => {
+for (const box of [{ x: 900, y: 250, w: 120, h: 30 }, { x: 1280, y: 0, w: 160, h: 24 }, { x: 1300, y: 860, w: 140, h: 40 }]) {
+test(`wrapped strand surrounds a clock at ${box.x},${box.y} and stops requesting frames`, () => {
   let now = 0; let id = 0; let arrived = 0; let spots = 0;
   const frames = new Map(); const painted = [];
   const noop = () => {};
@@ -21,7 +22,7 @@ test('wrapped strand surrounds the time and stops requesting frames after settli
   const canvas = { getContext: () => context, dataset: {}, width: 0, height: 0 };
   const mark = { getTailFrame: () => ({ x: 100, y: 500, tx: 1, ty: 0, r: 5, hw: 4 }), setUnravel: noop };
   const strand = window.Strand.mount(canvas, mark, { onArrive: () => { arrived += 1; } });
-  strand.setTarget({ x: 900, y: 250, w: 120, h: 30 }, { wrap: true, holdMs: 300 });
+  strand.setTarget(box, { wrap: true, holdMs: 300 });
   for (let count = 0; frames.size && count < 100; count += 1) {
     now += 16; const [key, fn] = frames.entries().next().value; frames.delete(key); fn(now);
   }
@@ -29,8 +30,10 @@ test('wrapped strand surrounds the time and stops requesting frames after settli
   assert.equal(strand.getState(), 'pointing');
   assert.equal(frames.size, 0, 'settled reminder uses no animation loop');
   assert.equal(spots, 0, 'wrap replaces the ordinary corner marker');
-  assert.ok(painted.some(([x, y]) => x > 1020 && y >= 245 && y <= 285), 'ribbon reaches right of the time');
-  assert.ok(painted.some(([x, y]) => y < 250 && x > 900 && x < 1020), 'ribbon passes above the time');
-  assert.ok(painted.some(([x, y]) => y > 280 && x > 900 && x < 1020), 'ribbon passes below the time');
+  const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
+  assert.ok(painted.some(([x, y]) => x > cx && y < cy), 'ribbon loops above the clock center');
+  assert.ok(painted.some(([x, y]) => x > cx && y > cy), 'ribbon loops below the clock center');
+  assert.ok(painted.every(([x, y]) => x >= 0 && y >= 0 && x <= 1440 && y <= 900), 'edge clock loop stays on screen');
   strand.destroy();
 });
+}

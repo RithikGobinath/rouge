@@ -1,5 +1,5 @@
 'use strict';
-// The overlay: one transparent window, always on top, covering the work area of
+// The overlay: one transparent window, always on top, covering the full area of
 // the main display. The ribbon, the thread, the strip bar and every bubble are
 // drawn in it. It never moves (the ribbon picks a corner instead), and it lets
 // the mouse through everywhere except over a piece of its own UI, so it never
@@ -23,7 +23,7 @@ function createOverlay(o) {
   let lastSpot = '';
   let watchingDisplays = false;
 
-  const area = () => screen.getPrimaryDisplay().workArea;
+  const area = () => screen.getPrimaryDisplay().bounds;
   const live = () => Boolean(win) && !win.isDestroyed();
   const handle = () => (live() ? win.getNativeWindowHandle().readUInt32LE(0) : 0);
 
@@ -36,7 +36,18 @@ function createOverlay(o) {
 
   function fitToDisplay() {
     if (!live()) return;
-    try { win.setBounds(area()); } catch (_) { /* a display went away while this was happening */ }
+    try {
+      win.setBounds(area());
+      if (!win.webContents.isDestroyed()) win.webContents.send('overlay:area', usableArea());
+    } catch (_) { /* a display went away while this was happening */ }
+  }
+
+  function usableArea() {
+    const work = screen.getPrimaryDisplay().workArea;
+    const origin = live() ? win.getBounds() : area();
+    const x = work.x - origin.x; const y = work.y - origin.y;
+    return { x, y, width: work.width, height: work.height,
+      right: Math.max(0, origin.width - x - work.width), bottom: Math.max(0, origin.height - y - work.height) };
   }
 
   // Once Chromium has given a monitor-sized always-on-top window focus it drops it to the bottom of the stack and
@@ -68,7 +79,7 @@ function createOverlay(o) {
     win = new BrowserWindow({
       title: `${brand.name} overlay`,
       x: a.x, y: a.y, width: a.width, height: a.height,
-      show: false, frame: false, transparent: true, hasShadow: false,
+      show: false, frame: false, transparent: true, hasShadow: false, enableLargerThanScreen: true,
       resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false,
       skipTaskbar: true, alwaysOnTop: true, focusable: true,
       webPreferences: { preload: o.preload, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, spellcheck: false },
@@ -104,6 +115,7 @@ function createOverlay(o) {
     get win() { return win; },
     get alive() { return live(); },
     get visible() { return shown; },
+    get usableArea() { return usableArea(); },
     send(channel, data) { if (live() && !win.webContents.isDestroyed()) win.webContents.send(channel, data); },
     setIgnore: letMousePass,
     show() { shown = true; if (live()) { win.showInactive(); liftToTop(); } },
@@ -122,6 +134,8 @@ function createOverlay(o) {
     },
     destroy() {
       clearInterval(pollTimer); clearInterval(raiseTimer);
+      for (const event of ['display-metrics-changed', 'display-added', 'display-removed']) screen.removeListener(event, fitToDisplay);
+      watchingDisplays = false;
       if (live()) win.destroy();
       win = null;
     },
