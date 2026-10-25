@@ -57,9 +57,13 @@
     let ring = null;
     if (wrap) {
       const cx = box.x + box.w / 2; const cy = box.y + box.h / 2;
-      // System clocks sit against a screen edge: keep the loop visible, inside its padded native bounds.
-      const rx = Math.max(1, Math.min(box.w / 2 + 14, cx - 3, W - cx - 3));
-      const ry = Math.max(1, Math.min(box.h / 2 + 12, cy - 3, H - cy - 3));
+      // The ring must orbit outside the text so the clock remains visible beneath it.
+      // The ribbon is ~7 px wide on each side; add another 10 px of breathing room so
+      // neither edge crosses into the text. Screen-edge clips (top/right) are handled by
+      // the canvas itself — do not cap ry/rx by cy or (W-cx) since that collapses the
+      // ring into the text when the clock sits at the very top or right of the screen.
+      const rx = Math.max(1, Math.min(box.w / 2 + 26, W - cx - 3));
+      const ry = Math.max(1, box.h / 2 + 20);
       ring = { cx, cy, rx, ry, angle: Math.atan2((a.y - cy) / ry, (a.x - cx) / rx) };
     }
     const b = ring ? { x: ring.cx + ring.rx * Math.cos(ring.angle), y: ring.cy + ring.ry * Math.sin(ring.angle) } : stopPoint(box, a);
@@ -254,8 +258,12 @@
         shine[i] = 0.5 + 0.5 * Math.sin(run[i] / 70 - clock * 2.2);
         const across = Math.max(0.9, hw * Math.abs(Math.cos(phi[i])));
         if (wrap) {
-          px[i] = clamp(px[i], across + 1, W - across - 1);
-          py[i] = clamp(py[i], across + 1, H - across - 1);
+          // Allow the ring to extend past the screen edges so it orbits outside
+          // the text even when the clock is flush against the top or right edge.
+          // The canvas clip discards what is off-screen; only clamp the far edges
+          // to avoid the ribbon wrapping all the way around the whole screen.
+          px[i] = clamp(px[i], -across, W - across - 1);
+          py[i] = clamp(py[i], -across, H - across - 1);
         }
         lx[i] = px[i] + ty[i] * across; ly[i] = py[i] - tx[i] * across;
         rx[i] = px[i] - ty[i] * across; ry[i] = py[i] + tx[i] * across;
