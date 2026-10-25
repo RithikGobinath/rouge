@@ -31,6 +31,7 @@ const TARGETED = new Set(['type_text', 'press_keys', 'scroll', 'click']);
  * @property {(s:{text:string}) => void} [say]
  * @property {(ms:number)=>Promise<void>} [sleep]
  * @property {()=>number} [now]
+ * @property {string} [disabledReason] blocks actions before any side effects in development
  */
 
 /** @param {ExecDeps} d */
@@ -204,6 +205,7 @@ function createExecutor(d) {
    * action that simply could not be done.
    */
   async function runOne(raw, ctx = {}) {
+    if (d.disabledReason) return { ok: false, note: d.disabledReason };
     const v = validate(raw);
     if (!v.ok) return { ok: false, note: 'I can only do things from my fixed list.' };
     const action = v.action;

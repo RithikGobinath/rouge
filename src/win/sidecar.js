@@ -50,6 +50,7 @@ function createWinSidecar(opts = {}) {
     /** @returns {Promise<FgWindow>} the window the user is working in, never one of ours */
     fg: () => call('fg', { ignorePid }),
     cursor: () => call('cursor'),
+    clock: () => call('system.clock', {}, 5000),
     /** @returns {Promise<{element: UiaElement|null, hwnd:number, window?:{title:string,pid:number}}>} */
     fromPoint: (x, y) => warm(() => call('uia.frompoint', { x, y, ignorePid }, 5000), (r) => !r.element && r.hwnd !== 0),
     uiaList: (hwnd, max = 150) => warm(() => call('uia.list', { hwnd, max }, 6000), (r) => r.elements.length === 0),
@@ -57,6 +58,8 @@ function createWinSidecar(opts = {}) {
     uiaInvoke: (name, type, guard) => warm(() => call('uia.invoke', { name, type, ignorePid, ...(guard || {}) }, 8000), (r) => !r.ok),
     /** The control with keyboard focus, so typing never lands in a password box. */
     focused: () => call('uia.focused', {}, 3000),
+    /** The text highlighted in the front app; `own` when the focus is in one of our windows. */
+    selection: () => call('uia.selection', { ignorePid }, 3000),
     // Computer sessions use private, generation-scoped UIA refs; legacy voice calls keep their existing IDs.
     computerSnapshot: (hwnd = 0) => call('computer.snapshot', { hwnd, ignorePid }, 8000),
     computerDescribe: (snapshotId, ref) => call('computer.describe', { snapshotId, ref, ignorePid }, 5000),

@@ -9,6 +9,7 @@
 <body data-mode="corner" data-corner="br">
   <!-- The thread: the ribbon let out across the screen. It covers the window and never takes the mouse. -->
   <canvas id="strand-layer" data-task="" aria-hidden="true"></canvas>
+  <div id="clock-highlight" class="hidden" aria-hidden="true"></div>
 
   <!-- Strip mode: the ribbon folded into a slim bar at the top of the screen. -->
   <div id="strip" class="strip hidden" data-state="idle" aria-live="polite">
@@ -32,7 +33,7 @@
   </div>
 
   <div id="askfirst" class="gl card hidden" role="dialog" aria-label="Check first">
-    <div class="k">Check first</div>
+    <div id="ask-kicker" class="k">Check first</div>
     <div id="ask-title" class="t"></div>
     <div id="ask-hint" class="h"></div>
     <div class="a"><button id="ask-yes" type="button" class="y">Go ahead</button><button id="ask-no" type="button">Not now</button></div>
@@ -42,6 +43,10 @@
     <span id="offer-text">Save that as a shortcut?</span>
     <span class="a"><button id="offer-keep" type="button" class="y">Save</button><button id="offer-skip" type="button">Skip</button></span>
     <div id="offer-steps" class="h"></div>
+  </div>
+
+  <div id="shelf" class="gl shelf hidden" role="region" aria-label="Files Rouge is holding">
+    <div id="shelf-items" class="chips"></div>
   </div>
 
   <div id="quick" class="gl quick hidden" role="dialog" aria-label="Type a command">
@@ -60,6 +65,14 @@
   </div>
 
   <div id="toast" class="gl toast hidden" role="status"></div>
+
+  <section id="meeting-reminder" class="gl meeting-reminder hidden" role="status" aria-live="polite" aria-label="Meeting reminder">
+    <div class="k">Meeting reminder</div>
+    <div id="meeting-title" class="t"></div>
+    <time id="meeting-time"></time>
+    <div id="meeting-countdown" class="h"></div>
+    <div class="a"><button id="meeting-dismiss" type="button">Dismiss</button></div>
+  </section>
 
   <script src="../shared/ribbon.js"></script>
   <script src="../shared/mark3d.js"></script>

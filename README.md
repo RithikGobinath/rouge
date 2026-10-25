@@ -13,6 +13,32 @@ npm ci
 npm start
 ```
 
+For UI and typed-chat development on macOS, use `npm run dev:mac`. This opt-in
+mode disables the computer agent, all shortcut actions, Windows speech/hotkeys,
+and background screen/calendar watching. It does not change Windows startup.
+An Anthropic key is still required for model replies.
+
+The Mac launcher prepares a local development entry inside the installed
+Electron bundle and opens it through macOS. Development settings and encrypted
+keys stay in `../rouge-user-data`, separate from a normal installation. Quit the
+Electron app before relaunching after backend edits. `npm ci` replaces the
+installed runtime; `npm run dev:mac` recreates its development entry.
+
+The wand can point to screen positions locally, including in Mac development
+mode with no API key: type `point to the top left corner`, `point to the bottom
+right corner`, `point to the center`, or simply `top left corner`. Corners,
+edge midpoints, and the center refer to the primary display's usable area.
+These requests make no model calls, screenshots, clicks, or mouse movements.
+Type `stop` or click the wand's Close button to retract it. Known control
+rectangles supplied by the computer agent also highlight without vision;
+the explicit point-and-ask hotkey still uses its existing visual explanation.
+
+Meeting reminders read the existing local `calendar.json` and alert 15 minutes
+before timed events, extending the wand to a flowing underline at the computer's current-time clock. They
+also work in Mac development mode without any model. See
+[meeting reminder setup and behavior](docs/MEETING-REMINDERS.md) for the calendar
+path and validation details.
+
 Keys are saved using Electron's operating-system encryption. Never put credentials in source files, documentation, command arguments, or commits.
 
 Existing installations keep the internal `Clippy` data directory and Windows app identifier for compatibility. Rouge is the product name; some internal identifiers and older source strings still use the previous development name.

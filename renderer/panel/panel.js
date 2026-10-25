@@ -19,6 +19,7 @@
     { id: 'anthropic', name: 'Anthropic', role: 'Haiku, Sonnet and Opus for A, B and C', url: 'https://console.anthropic.com', ph: 'Paste your Anthropic key' },
     { id: 'gemini', name: 'Gemini', role: 'Optional speech backup', url: 'https://aistudio.google.com/apikey', ph: 'Paste your Gemini key' },
     { id: 'typesafe', name: 'TypeSafe', role: 'Optional voice parsing without Claude routing', url: 'https://typesafe.ai', ph: 'Paste your TypeSafe key' },
+    { id: 'serper', name: 'Serper', role: 'Google Shopping prices for price comparison', url: 'https://serper.dev', ph: 'Paste your Serper key' },
   ];
   const MODEL_FIELDS = [['#model-anthropic-a', 'anthropicA'], ['#model-anthropic-b', 'anthropicB'], ['#model-anthropic-c', 'anthropicC'], ['#model-gemini', 'gemini']];
 
@@ -45,7 +46,7 @@
       list.append(h('div', { class: 'row' },
         h('div', {}, h('b', { text: r.name }), h('div', { class: 'steps' }, r.steps.map((t) => h('i', { text: t }))), h('small', { text: `${plural(r.actions.length, 'step')} · ${ago(r.lastRunAt)}` })),
         h('div', { class: 'acts' },
-          h('button', { class: 'run', type: 'button', text: 'Run', onclick: async () => { const x = await api.routine('run', r.id); snack(x.ok ? `Ran ${r.name}` : x.error || 'That did not run.'); } }),
+          h('button', { class: 'run', type: 'button', text: 'Run', disabled: S.development, onclick: async () => { const x = await api.routine('run', r.id); snack(x.ok ? `Ran ${r.name}` : x.error || 'That did not run.'); } }),
           h('button', { type: 'button', text: 'Rename', onclick: () => rename(r) }),
           h('button', { class: 'del', type: 'button', text: 'Delete', onclick: async () => { await api.routine('remove', r.id); snack('Deleted'); } }))));
     }
@@ -114,7 +115,7 @@
   // ---- Settings: the rest --------------------------------------------------------
   const sw = (id, key, invert) => { const b = $(id); b.addEventListener('click', () => { const on = b.getAttribute('aria-checked') !== 'true'; api.setSettings({ [key]: invert ? !on : on }); }); };
   sw('#tg-speak', 'speakReplies'); sw('#tg-strip', 'strip'); sw('#tg-show', 'markHidden', true); sw('#tg-login', 'startWithWindows'); sw('#tg-cc', 'useClaudeCode');
-  sw('#tg-web', 'webAccess'); sw('#tg-auto', 'auto');
+  sw('#tg-web', 'webAccess'); sw('#tg-shop', 'shoppingOffers'); sw('#tg-lookup', 'lookupOffers'); sw('#tg-auto', 'auto');
   $('#corners').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) api.setSettings({ markCorner: b.dataset.c }); });
   $('#save-models').addEventListener('click', async () => {
     const models = Object.fromEntries(MODEL_FIELDS.map(([id, key]) => [key, $(id).value.trim()]));
@@ -152,16 +153,23 @@
     const s = S.settings;
     const set = (id, v) => $(id).setAttribute('aria-checked', String(Boolean(v)));
     set('#tg-speak', s.speakReplies); set('#tg-strip', s.strip); set('#tg-show', !s.markHidden); set('#tg-login', s.startWithWindows); set('#tg-cc', s.useClaudeCode);
-    set('#tg-web', s.webAccess !== false); set('#tg-auto', s.auto !== false);
+    set('#tg-web', s.webAccess !== false); set('#tg-shop', s.shoppingOffers !== false); set('#tg-lookup', s.lookupOffers !== false); set('#tg-auto', s.auto !== false);
     for (const b of document.querySelectorAll('#corners button')) b.classList.toggle('on', b.dataset.c === s.markCorner);
     $('#corner-row').style.opacity = s.strip ? '.45' : '1';
     $('#cc-line').textContent = S.claudeCode ? 'Claude Code is available as a fallback without an Anthropic key. A, B and C use your Anthropic key.' : 'Claude Code was not found. Save an Anthropic key to use A, B and C.';
     for (const [id, key] of MODEL_FIELDS) if (document.activeElement !== $(id)) $(id).value = s.models[key] || '';
     $('#voice-line').textContent = S.voice.available ? `Listening on this PC with ${S.voice.recognizer.split('|').pop().trim()}. Recognized words go to the configured AI provider; microphone audio stays on this PC.` : `Windows speech recognition is not available (${S.voice.error || 'not found'}). Typing a command works: click the ribbon.`;
+    if (S.development) $('#voice-line').textContent = 'Voice, hotkeys and computer controls are disabled during Mac development. Click the ribbon to type.';
+    const reminders = S.reminders || {};
+    const reminderStatus = { ready: 'On · 15 minutes before meetings', stopped: 'Starting', missing: 'calendar.json was not found', invalid: 'calendar.json could not be read', stale: 'Calendar snapshot has expired', watch_error: 'Calendar updates cannot be watched', delivery_error: 'Reminder could not be displayed', persistence_error: 'Reminders work, but repeat protection could not be saved' };
+    reminderStatus.test_only = 'Test meetings active; the real calendar snapshot is unavailable';
+    $('#calendar-line').textContent = `Meeting reminders: ${reminderStatus[reminders.status] || 'Unavailable'}. Local calendar only; no model calls.`;
+    $('#calendar-line').title = reminders.file || '';
+    for (const id of ['#tg-speak', '#tg-login', '#reset-keys']) $(id).disabled = Boolean(S.development);
     const hot = $('#hotkeys'); hot.replaceChildren();
     for (const [id, label] of HOTKEYS) {
       const k = S.hotkeys[id]; const rec = recording === id;
-      hot.append(h('button', { class: `hk${rec ? ' rec' : ''}${k.ok ? '' : ' bad'}`, type: 'button', 'data-id': id, title: 'Click, then press the keys you want', onclick: () => startRecording(id) },
+      hot.append(h('button', { class: `hk${rec ? ' rec' : ''}${k.ok ? '' : ' bad'}`, type: 'button', disabled: S.development, 'data-id': id, title: 'Click, then press the keys you want', onclick: () => startRecording(id) },
         rec ? h('b', { text: 'Press the new keys… Esc to cancel' }) : KEYCAP(k.accel), h('span', { text: label }), !rec && !k.ok ? h('em', { text: 'taken by another app: click to change' }) : null));
     }
     $('#about-path').textContent = `Your data lives in ${S.dataDir}`;
@@ -174,6 +182,11 @@
     const ready = S.helper && S.helper.win;
     live.className = `live ${ready && !bad ? 'ok' : 'warn'}`;
     $('#live-text').textContent = !ready ? 'Starting the Windows helper' : bad ? 'A hotkey is taken by another app' : `Ready · hold ${spoken(S.hotkeys.talk.accel)} to talk`;
+    if (S.development) {
+      live.className = 'live ok';
+      live.title = 'Computer controls, voice and screen watching are disabled';
+      $('#live-text').textContent = 'Mac development · controls disabled';
+    }
     $('#ver').textContent = `Version ${S.version}`;
     $('#brand-name').textContent = S.name; $('#about-name').textContent = `${S.name}.`; document.title = S.name;
     // wherever the text names a hotkey, show the one it really is

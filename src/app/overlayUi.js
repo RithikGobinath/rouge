@@ -16,7 +16,7 @@ function createOverlayUi({ overlay }) {
   const reviews = new Map();
   let levelAt = 0;
 
-  function question(map, channel, closeChannel, payload, timeoutMs, onTimeout) {
+  function question(map, channel, closeChannel, payload, timeoutMs, onTimeout, signal) {
     const id = nextId++;
     return new Promise((resolve) => {
       const finish = (v) => {
@@ -28,6 +28,8 @@ function createOverlayUi({ overlay }) {
       const timer = setTimeout(() => finish(onTimeout), timeoutMs);
       map.set(id, finish);
       overlay.send(channel, { id, ...payload });
+      // The caller can take the question back (the page it was about is gone) and it counts as "no".
+      if (signal) { if (signal.aborted) finish(onTimeout); else signal.addEventListener('abort', () => finish(onTimeout), { once: true }); }
     });
   }
 
@@ -43,8 +45,11 @@ function createOverlayUi({ overlay }) {
     notice: (text, o = {}) => { if (text) overlay.send('ui:notice', { text: String(text), tone: o.tone || 'info', durationMs: o.durationMs || 0 }); },
     speak: (text) => overlay.send('ui:speak', { text: String(text || '').slice(0, 600) }),
 
-    /** The Check first card. Resolves true on Yes, false on Not now (or after 45 s of nobody answering). */
-    ask: (card) => question(asks, 'ui:ask', 'ui:ask:close', { card }, ASK_TIMEOUT_MS, false),
+    /**
+     * The Check first card. Resolves true on Yes, false on Not now (or after 45 s of nobody answering).
+     * `card` may also set `kicker`, `yes` and `no`; `o.timeoutMs` shortens the wait and `o.signal` closes it early.
+     */
+    ask: (card, o = {}) => question(asks, 'ui:ask', 'ui:ask:close', { card }, o.timeoutMs || ASK_TIMEOUT_MS, false, o.signal),
     answerAsk(id, yes) { const f = asks.get(id); if (f) f(Boolean(yes)); },
 
     /** "Save that as a shortcut?" Resolves 'keep' or 'skip'. */

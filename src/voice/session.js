@@ -224,6 +224,7 @@ function createVoice(d) {
   async function doClause(clause, ctx) {
     if (ctx.signal.aborted) return false;
     if (clause.action && clause.action.type === 'cancel') { cancel(); return false; }
+    if (d.pointAsk && typeof d.pointAsk.pointPosition === 'function' && d.pointAsk.pointPosition(clause.text)) return true;
     let actions = clause.action ? [clause.action] : null;
     let completion = null;
     if (d.calendar && await d.calendar.checkText(clause.text)) return true;
@@ -474,6 +475,14 @@ function createVoice(d) {
       return true;
     }
     if (run || hearing) return false;
+    if (d.addTestMeeting) {
+      const result = d.addTestMeeting(text);
+      if (result) {
+        d.ui.transcript(text, { final: true });
+        d.ui.say(result.message, { kicker: 'Test calendar' });
+        return true;
+      }
+    }
     const r = newRun('text');
     run = r; r.text = text; r.released = true;
     try {
@@ -503,6 +512,7 @@ function createVoice(d) {
   }
 
   function cancel() {
+    if (d.pointAsk && typeof d.pointAsk.close === 'function') d.pointAsk.close();
     if (pendingAsk) pendingAsk.settle(false);
     if (d.ui.closeAll) d.ui.closeAll();
     for (const r of new Set([run, hearing])) {

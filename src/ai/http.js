@@ -7,7 +7,7 @@ class AiError extends Error {
   constructor(message, info = {}) { super(message); this.name = 'AiError'; Object.assign(this, info); }
 }
 
-const NAMES = { gemini: 'Gemini', anthropic: 'Claude', typesafe: 'TypeSafe' };
+const NAMES = { gemini: 'Gemini', anthropic: 'Claude', typesafe: 'TypeSafe', serper: 'Serper' };
 
 /** What to tell the person for a failed call. */
 function explain(provider, status, detail) {

@@ -74,6 +74,7 @@
       <div class="gl wide">
         <h5>Voice</h5>
         <p class="m" id="voice-line"></p>
+        <p class="m" id="calendar-line"></p>
         <div class="setrow"><span><b>Speak replies</b><small>Read answers aloud with a Windows voice. Off unless you turn it on.</small></span><button type="button" class="tg" id="tg-speak" role="switch" aria-checked="false"></button></div>
         <div class="hot" id="hotkeys"></div>
         <button type="button" id="reset-keys" class="get rm2">Put the hotkeys back</button>
@@ -92,6 +93,8 @@
         <div class="setrow"><span><b>Start with Windows</b><small>Open quietly at sign-in so the hotkeys are ready.</small></span><button type="button" class="tg" id="tg-login" role="switch" aria-checked="false"></button></div>
         <div class="setrow"><span><b>Optional Claude Code fallback</b><small id="cc-line">A, B and C use your Anthropic key.</small></span><button type="button" class="tg" id="tg-cc" role="switch" aria-checked="false"></button></div>
         <div class="setrow"><span><b>Internet access</b><small>Claude can search and read public pages when an answer needs current information. Source links appear with the answer.</small></span><button type="button" class="tg" id="tg-web" role="switch" aria-checked="true"></button></div>
+        <div class="setrow"><span><b>Price comparison</b><small>When the browser is on a product page, offer to compare prices at other stores. The product name goes to Google Shopping (with a Serper key) or to Claude's web search, only after you click Compare prices.</small></span><button type="button" class="tg" id="tg-shop" role="switch" aria-checked="true"></button></div>
+        <div class="setrow"><span><b>Look up highlighted text</b><small>When you highlight a word or phrase, offer to look it up. The highlighted text goes to Claude's web search, only after you click Look up.</small></span><button type="button" class="tg" id="tg-lookup" role="switch" aria-checked="true"></button></div>
         <div class="setrow"><span><b>Auto</b><small>Picks Haiku, Sonnet, or Opus for each request. Simple answers stay on Haiku. Live lookups and computer work use Sonnet. Hard reasoning uses Opus. One model call, not a separate router.</small></span><button type="button" class="tg" id="tg-auto" role="switch" aria-checked="true"></button></div>
         <details class="adv"><summary>Models</summary>
           <p class="m">These are the three Claude IDs Auto chooses from. With Auto off, Haiku answers or hands the same request to Sonnet or Opus.</p>

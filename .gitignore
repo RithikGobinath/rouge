@@ -17,3 +17,5 @@ userdata/
 *.key
 AGENTS.local.md
 src/profile/profile.json
+calendar.json
+meeting-reminders.json

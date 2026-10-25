@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "dev:mac": "node scripts/dev-mac.js",
     "test": "node --test \"test/**/*.test.js\"",
     "smoke": "electron . --smoke",
     "shots": "electron . --shots",

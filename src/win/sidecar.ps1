@@ -23,6 +23,7 @@
 #   {"id":18,"op":"win.topmost","hwnd":123}                put a window back above everything without activating it
 #   {"id":19,"op":"keys.state","vks":[32,17,18]}           which of these keys are down right now
 #   {"id":20,"op":"watch.start","keys":[32],"click":true,"fg":true}  /  {"op":"watch.stop"}
+#   {"id":21,"op":"uia.selection","ignorePid":1}           the text highlighted in the focused control or its document
 #
 # Sent on its own while watching: {"ev":"click","x":..,"y":..}, {"ev":"key","vk":..,"down":..}, {"ev":"fg",...}.
 # Coordinates are physical screen pixels (the process is per-monitor DPI aware).
@@ -130,6 +131,8 @@ namespace Sidecar {
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern bool EnumWindows(Visit each, IntPtr state);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string title);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int how);
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
@@ -162,6 +165,91 @@ namespace Sidecar {
     public static int[] Bounds(IntPtr h) { Box b; return GetWindowRect(h, out b) ? new int[] { b.L, b.T, b.R, b.B } : null; }
     public static bool Cloaked(IntPtr h) { int v; return DwmGetWindowAttribute(h, 14, out v, 4) == 0 && v != 0; }
     public static bool IsPinned(IntPtr h) { return (GetWindowLong(h, ExStyle) & 0x8) != 0; }
+
+    public static string ClockStatus = "not_requested";
+    public static Condition ClockCondition() {
+      return new OrCondition(
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTray.DateTimeIcon"),
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "DateTimeIcon"),
+        new PropertyCondition(AutomationElement.AutomationIdProperty, "TimeInnerTextBlock"),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.DateTimeIcon"),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.DateTimeIconContent"),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "DateTimeIconContent"));
+    }
+
+    public static Condition ClockButtonCondition() {
+      return new AndCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+        new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.OmniButton"));
+    }
+
+    public static bool ClockName(string name, DateTime now) {
+      if (String.IsNullOrWhiteSpace(name) || name.Length > 512) return false;
+      string text = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", " ");
+      // Only used inside the notification area: application titles are never time evidence.
+      foreach (DateTime at in new DateTime[] { now, now.AddMinutes(-1) }) {
+        foreach (string format in new string[] { "t", "T", "h:mm tt", "hh:mm tt", "HH:mm" }) {
+          string time = System.Text.RegularExpressions.Regex.Replace(at.ToString(format), @"\s+", " ");
+          string pattern = System.Text.RegularExpressions.Regex.Escape(time).Replace(@"\ ", @"\s*");
+          if (System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<!\d)" + pattern + @"(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+        }
+      }
+      return false;
+    }
+
+    static int[] ClockElement(AutomationElement element, int[] tray) {
+      try {
+        if (element.Current.IsOffscreen) return null;
+        var r = element.Current.BoundingRectangle;
+        if (r.IsEmpty || r.Width <= 0 || r.Height <= 0 || r.Left < tray[0] - 1 || r.Top < tray[1] - 1 || r.Right > tray[2] + 1 || r.Bottom > tray[3] + 1) return null;
+        return new int[] { (int)Math.Floor(r.Left), (int)Math.Floor(r.Top), (int)Math.Ceiling(r.Right), (int)Math.Ceiling(r.Bottom) };
+      } catch (ElementNotAvailableException) { return null; }
+    }
+
+    static int[] ClockCandidate(AutomationElementCollection elements, int[] tray, bool byName) {
+      int[] found = null;
+      foreach (AutomationElement element in elements) {
+        if (byName && !ClockName(element.Current.Name, DateTime.Now)) continue;
+        int[] b = ClockElement(element, tray);
+        if (b == null) continue;
+        if (found != null && (b[0] >= found[2] || b[2] <= found[0] || b[1] >= found[3] || b[3] <= found[1])) { ClockStatus = "ambiguous_clock"; return null; }
+        if (found == null || (b[2] - b[0]) * (b[3] - b[1]) < (found[2] - found[0]) * (found[3] - found[1])) found = b;
+      }
+      if (found != null) ClockStatus = "ready";
+      return found;
+    }
+
+    public static int[] ClockBounds() {
+      ClockStatus = "taskbar_missing";
+      IntPtr tray = FindWindow("Shell_TrayWnd", null);
+      if (tray == IntPtr.Zero || !IsWindowVisible(tray)) return null;
+      int[] trayBounds = Bounds(tray);
+      if (trayBounds == null) return null;
+      ClockStatus = "clock_not_found";
+      IntPtr notify = FindWindowEx(tray, IntPtr.Zero, "TrayNotifyWnd", null);
+      if (notify != IntPtr.Zero && IsWindowVisible(notify)) {
+        IntPtr clock = FindWindowEx(notify, IntPtr.Zero, "TrayClockWClass", null);
+        if (clock != IntPtr.Zero && IsWindowVisible(clock)) {
+          int[] native = Bounds(clock);
+          if (native != null && native[2] > native[0] && native[3] > native[1]
+            && native[0] >= trayBounds[0] && native[1] >= trayBounds[1] && native[2] <= trayBounds[2] && native[3] <= trayBounds[3]) { ClockStatus = "ready"; return native; }
+        }
+      }
+      // XAML class names and AutomationIds are separate properties on Windows 11.
+      var root = AutomationElement.FromHandle(tray);
+      var matches = root.FindAll(TreeScope.Descendants, ClockCondition());
+      int[] result = ClockCandidate(matches, trayBounds, false);
+      if (result != null || ClockStatus == "ambiguous_clock") return result;
+      // Windows 11 exposes this notification button beside TrayNotifyWnd in the UIA tree.
+      var clockButtons = root.FindAll(TreeScope.Descendants, ClockButtonCondition());
+      result = ClockCandidate(clockButtons, trayBounds, true);
+      if (result != null || ClockStatus == "ambiguous_clock") return result;
+      var notificationRoot = notify != IntPtr.Zero && IsWindowVisible(notify) ? AutomationElement.FromHandle(notify)
+        : root.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.SystemTrayFrame"));
+      if (notificationRoot == null) return null;
+      var buttons = notificationRoot.FindAll(TreeScope.Descendants,
+        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+      return ClockCandidate(buttons, trayBounds, true);
+    }
 
     /// <summary>The name of a process, and where its program is (empty when Windows will not say).</summary>
     public static string[] Program(uint pid) {
@@ -702,6 +790,27 @@ namespace Sidecar {
     public static void Release(string id) {
       if (id == generation) { generation = null; refs.Clear(); root = null; target = IntPtr.Zero; }
     }
+    /// <summary>The text selected in the focused control, or in the document that holds it. Empty when nothing is selected or the control is a credential field; own is set when the focus is in one of our windows.</summary>
+    public static string Selection(uint ignore, out bool own) {
+      own = false;
+      AutomationElement e = AutomationElement.FocusedElement;
+      if (e == null) return "";
+      if (e.Current.ProcessId == (int)ignore) { own = true; return ""; }
+      if (Secret(e)) return "";
+      for (int n = 0; e != null && n < 8; n++) {
+        object p;
+        if (e.TryGetCurrentPattern(TextPattern.Pattern, out p)) {
+          System.Text.StringBuilder text = new System.Text.StringBuilder();
+          foreach (System.Windows.Automation.Text.TextPatternRange range in ((TextPattern)p).GetSelection()) {
+            if (text.Length >= 600) break;
+            text.Append(range.GetText(600 - text.Length)).Append(' ');
+          }
+          return text.ToString().Trim();
+        }
+        e = TreeWalker.ControlViewWalker.GetParent(e);
+      }
+      return "";
+    }
   }
 
   /// <summary>Reads stdin on its own thread, so the main loop can wait for a line and still watch the keyboard.</summary>
@@ -772,6 +881,13 @@ function Describe-Front([uint32]$ignore) {
 
 # ---- what each operation does ---------------------------------------------------------
 $Ops = @{}
+
+$Ops['system.clock'] = { param($r)
+  $b = [Sidecar.Desk]::ClockBounds()
+  $rect = $null
+  if ($b) { $rect = As-Rect $b[0] $b[1] ($b[2] - $b[0]) ($b[3] - $b[1]) }
+  @{ rect = $rect; status = [Sidecar.Desk]::ClockStatus }
+}
 
 $Ops['ping'] = { param($r) @{ ok = $true; pid = $PID; ps = $PSVersionTable.PSVersion.ToString() } }
 $Ops['fg'] = { param($r) Describe-Front (Pid-Of $r) }
@@ -862,6 +978,13 @@ $Ops['computer.act'] = { param($r)
   } catch { Computer-Failure $_ }
 }
 $Ops['computer.release'] = { param($r) [Sidecar.Computer]::Release([string]$r.snapshotId); @{ ok = $true } }
+
+$Ops['uia.selection'] = { param($r)
+  $own = $false
+  $text = ''
+  try { $text = [Sidecar.Computer]::Selection((Pid-Of $r), [ref]$own) } catch { $text = '' }
+  @{ text = [string]$text; own = [bool]$own }
+}
 
 $Ops['input.text'] = { param($r)
   $delay = if ($null -ne $r.delayMs) { [int]$r.delayMs } else { 4 }

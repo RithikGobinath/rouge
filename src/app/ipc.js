@@ -7,7 +7,7 @@ const { ipcMain, dialog, shell, Menu } = require('electron');
 const brand = require('../brand');
 const { publicWebUrl } = require('../ai/web');
 
-const OPEN_OK = new Set(['https://typesafe.ai', 'https://aistudio.google.com/apikey', 'https://console.anthropic.com']);
+const OPEN_OK = new Set(['https://typesafe.ai', 'https://aistudio.google.com/apikey', 'https://console.anthropic.com', 'https://serper.dev']);
 const isId = (v) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1e9;
 const isName = (v) => typeof v === 'string' && v.length > 0 && v.length <= 80;
 const isRid = (v) => typeof v === 'string' && /^[a-f0-9]{4,20}$/.test(v);
@@ -31,8 +31,13 @@ function registerIpc(c) {
   ipcMain.on('autofill:cancel', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.cancelReview(m.id); });
   ipcMain.on('overlay:offer', (e, m) => { if (fromOverlay(e) && m && isId(m.id)) c.ui.answerOffer(m.id, m.choice); });
   ipcMain.on('overlay:text', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.onCommandText(text.trim().slice(0, 600)); });
+  ipcMain.on('overlay:shelf:hold', (e, file) => { if (fromOverlay(e) && typeof file === 'string' && file.length <= 1000) c.shelf.hold(file).catch(() => {}); });
+  ipcMain.on('overlay:shelf:drag', (e, id) => { if (fromOverlay(e) && isId(id)) c.shelf.drag(e.sender, id); });
+  ipcMain.on('overlay:shelf:remove', (e, id) => { if (fromOverlay(e) && isId(id)) c.shelf.remove(id); });
   ipcMain.on('overlay:point:more', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.pointAsk.followUp(text); });
   ipcMain.on('overlay:point:close', (e) => { if (fromOverlay(e)) c.pointAsk.close(); });
+  ipcMain.on('overlay:reminder:dismiss', (e) => { if (fromOverlay(e) && c.onReminderDismiss) c.onReminderDismiss(); });
+  ipcMain.handle('overlay:clock', (e) => fromOverlay(e) ? c.clockRect() : null);
   ipcMain.handle('overlay:source:open', async (e, value) => {
     if (!fromOverlay(e) || typeof value !== 'string' || value.length > 2048) return bad('source');
     const url = publicWebUrl(value);
