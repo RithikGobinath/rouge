@@ -31,6 +31,8 @@ function registerIpc(c) {
   ipcMain.on('overlay:text', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.onCommandText(text.trim().slice(0, 600)); });
   ipcMain.on('overlay:point:more', (e, text) => { if (fromOverlay(e) && typeof text === 'string' && text.trim()) c.pointAsk.followUp(text); });
   ipcMain.on('overlay:point:close', (e) => { if (fromOverlay(e)) c.pointAsk.close(); });
+  ipcMain.on('overlay:reminder:dismiss', (e) => { if (fromOverlay(e) && c.onReminderDismiss) c.onReminderDismiss(); });
+  ipcMain.handle('overlay:clock', (e) => fromOverlay(e) ? c.clockRect() : null);
   ipcMain.handle('overlay:source:open', async (e, value) => {
     if (!fromOverlay(e) || typeof value !== 'string' || value.length > 2048) return bad('source');
     const url = publicWebUrl(value);

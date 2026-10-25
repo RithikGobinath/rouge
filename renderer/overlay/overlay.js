@@ -9,6 +9,7 @@
     pill: $('#pill'), pillWords: $('#pill-words'), bubble: $('#bubble'), bubK: $('#bub-k'), bubText: $('#bub-text'), bubHint: $('#bub-hint'), bubSources: $('#bub-sources'), bubActions: $('#bub-actions'),
     ask: $('#askfirst'), askTitle: $('#ask-title'), askHint: $('#ask-hint'), offer: $('#offer'), offerSteps: $('#offer-steps'),
     quick: $('#quick'), quickInput: $('#quick-input'), toast: $('#toast'),
+    reminder: $('#meeting-reminder'), meetingTitle: $('#meeting-title'), meetingTime: $('#meeting-time'), meetingCountdown: $('#meeting-countdown'), clockHighlight: $('#clock-highlight'),
   };
 
   let settings = { markCorner: 'br', strip: false, markHidden: false, speakReplies: false };
@@ -17,6 +18,10 @@
   let speaking = false;
   let pendingBubble = null;
   let pointing = false;
+  let reminderOwnsWand = false;
+  let reminderTimer = 0;
+  let clockRect = null; let clockRequest = 0; let clockRetryTimer = 0;
+  let workArea = null;
   let askId = 0; let offerId = 0;
   let quickMode = 'command';
   let bubbleTimer = 0; let toastTimer = 0; let bubbleRaf = 0;
@@ -31,7 +36,12 @@
     if (mark) mark.setState('ready');
     if (pendingBubble) { showBubble(pendingBubble); pendingBubble = null; }
   }
-  function onRewound() { pointing = false; els.strip.classList.remove('free'); if (els.bubble.dataset.anchor === 'tip') hideBubble(); render(); }
+  function onRewound() {
+    pointing = false; reminderOwnsWand = false; els.strip.classList.remove('free');
+    if (els.bubble.dataset.anchor === 'tip') hideBubble();
+    render();
+    if (visible(els.reminder)) pointToSystemClock();
+  }
 
   /** Turn the ribbon so the tail it lets out points at the middle of the screen, from any corner. */
   function aimMark() {
@@ -54,22 +64,54 @@
   };
   const visible = (el) => !el.classList.contains('hidden');
 
+  function placeReminderAtClock(work) {
+    const rect = clockRect; const card = els.reminder;
+    if (!rect || !visible(card)) return false;
+    const w = card.offsetWidth; const h = card.offsetHeight; const gap = 8;
+    const minX = work.x + 8; const minY = work.y + 8;
+    const maxX = work.x + work.width - w - 8; const maxY = work.y + work.height - h - 8;
+    const x = clamp(rect.x + rect.w - w, minX, maxX);
+    const y = clamp(rect.y + (rect.h - h) / 2, minY, maxY);
+    const aboveLeft = { x: rect.x - w - gap, y: Math.min(rect.y, work.y + work.height) - h - gap };
+    const spot = [
+      aboveLeft,
+      { x, y: rect.y - h - gap },
+      { x, y: rect.y + rect.h + gap },
+      { x: rect.x - w - gap, y },
+      { x: rect.x + rect.w + gap, y },
+    ].find((s) => s.x >= minX && s.x <= maxX && s.y >= minY && s.y <= maxY
+      && (s === aboveLeft || s.x < rect.x + rect.w && s.x + w > rect.x || s.y < rect.y + rect.h && s.y + h > rect.y));
+    if (!spot) return false;
+    card.style.left = `${spot.x}px`; card.style.top = `${spot.y}px`;
+    return true;
+  }
+
   function layout() {
     const a = anchor(); const W = innerWidth; const H = innerHeight;
+    const work = workArea || { x: 0, y: 0, width: W, height: H };
     const down = settings.strip || (a.top + a.bottom) / 2 < H / 2;
     const rightSide = !settings.strip && (a.left + a.right) / 2 > W / 2;
     let edge = down ? a.bottom + 10 : a.top - 10;
+    const atClock = visible(els.reminder) && clockRect;
+    els.clockHighlight.classList.toggle('hidden', !atClock);
+    if (atClock) {
+      const r = clockRect;
+      els.clockHighlight.style.left = `${r.x}px`; els.clockHighlight.style.top = `${r.y}px`;
+      els.clockHighlight.style.width = `${r.w}px`; els.clockHighlight.style.height = `${r.h}px`;
+    }
     const stack = [els.ask, els.pill, els.quick, els.offer, els.toast];
-    if (els.bubble.dataset.anchor !== 'tip') stack.splice(3, 0, els.bubble);
+    if (!placeReminderAtClock(work)) stack.unshift(els.reminder);
+    if (els.bubble.dataset.anchor !== 'tip') stack.splice(stack.indexOf(els.quick), 0, els.bubble);
     for (const el of stack) {
       if (!visible(el)) continue;
       const w = el.offsetWidth; const h = el.offsetHeight;
-      const left = clamp(settings.strip ? a.left : (rightSide ? a.right - w : a.left), 8, W - w - 8);
+      const left = clamp(settings.strip ? a.left : (rightSide ? a.right - w : a.left), work.x + 8, work.x + work.width - w - 8);
       const top = down ? edge : edge - h;
-      el.style.left = `${left}px`; el.style.top = `${clamp(top, 8, H - h - 8)}px`;
+      el.style.left = `${left}px`; el.style.top = `${clamp(top, work.y + 8, work.y + work.height - h - 8)}px`;
       edge = down ? top + h + 8 : top - 8;
     }
     if (visible(els.bubble) && els.bubble.dataset.anchor === 'tip') placeAtTip();
+    if (reminderOwnsWand && visible(els.reminder)) pointToSystemClock();
   }
 
   /** A bubble about a pointed-at control sits at the tip of the thread, away from the control. */
@@ -241,7 +283,7 @@
   $('#offer-skip').addEventListener('click', () => { els.offer.classList.add('hidden'); bridge.offerAnswer(offerId, 'skip'); layout(); });
 
   // ---- click-through: only the UI blocks the mouse ------------------------------
-  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast';
+  const UI = '#mark-dock, #strip, #pill, #bubble, #askfirst, #offer, #quick, #toast, #meeting-reminder';
   const overUI = (x, y) => { const el = document.elementFromPoint(x, y); return Boolean(el && el.closest && el.closest(UI)); };
   let ignoring = null;
   bridge.on('cursor:probe', ({ x, y }) => { const want = !overUI(x, y); if (want !== ignoring) { ignoring = want; bridge.ignore(want); } });
@@ -306,7 +348,67 @@
   });
   bridge.on('quick:open', () => openQuick('command'));
 
+  function pointToSystemClock() {
+    if (!strand || pointing && !reminderOwnsWand) return;
+    const rect = clockRect;
+    if (!rect) return;
+    const previous = strand.getTarget();
+    if (reminderOwnsWand && previous && Math.abs(previous.x - rect.x) < 0.5 && Math.abs(previous.y - rect.y) < 0.5 && Math.abs(previous.w - rect.w) < 0.5 && Math.abs(previous.h - rect.h) < 0.5) return;
+    reminderOwnsWand = true; pointing = true;
+    els.strip.classList.add('free');
+    strand.setTarget(rect, { underline: true, holdMs: 600 });
+    if (mark) mark.setState('reading');
+  }
+
+  async function refreshClockTarget(retries = 1) {
+    clearTimeout(clockRetryTimer);
+    const request = ++clockRequest;
+    const rect = await bridge.clockRect().catch(() => null);
+    if (request !== clockRequest || !visible(els.reminder)) return;
+    clockRect = rect;
+    if (rect) {
+      els.meetingCountdown.textContent = els.meetingCountdown.textContent.replace(/ · System clock unavailable\.$/, '');
+      pointToSystemClock();
+    }
+    else {
+      if (reminderOwnsWand) { reminderOwnsWand = false; if (strand) strand.rewind(); }
+      els.meetingCountdown.textContent = els.meetingCountdown.textContent.replace(/ · System clock unavailable\.$/, '') + ' · System clock unavailable.';
+      if (retries > 0) clockRetryTimer = setTimeout(() => refreshClockTarget(retries - 1), 350);
+    }
+    layout();
+  }
+
+  function dismissMeeting() {
+    clearTimeout(reminderTimer);
+    clearTimeout(clockRetryTimer);
+    clockRequest += 1; clockRect = null;
+    els.reminder.classList.add('hidden');
+    if (reminderOwnsWand) { reminderOwnsWand = false; if (strand) strand.rewind(); }
+    layout();
+    bridge.dismissReminder();
+  }
+  $('#meeting-dismiss').addEventListener('click', dismissMeeting);
+  bridge.on('calendar:reminder', (message) => {
+    const events = (Array.isArray(message && message.events) ? message.events : [])
+      .filter((event) => event && Number.isFinite(event.startMs) && event.startMs > Date.now());
+    if (!events.length) return;
+    clearTimeout(reminderTimer);
+    clearTimeout(clockRetryTimer);
+    clockRequest += 1; clockRect = null;
+    const format = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    els.meetingTitle.textContent = events.map((event, i) => `${i ? format.format(new Date(event.startMs)) + ' · ' : ''}${String(event.title || 'Meeting').slice(0, 200)}`).join('\n');
+    els.meetingTime.textContent = format.format(new Date(events[0].startMs));
+    els.meetingTime.dateTime = new Date(events[0].startMs).toISOString();
+    const minutes = Math.max(1, Math.ceil((events[0].startMs - Date.now()) / 60000));
+    els.meetingCountdown.textContent = `Starts in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+    els.reminder.classList.remove('hidden');
+    layout();
+    refreshClockTarget();
+    reminderTimer = setTimeout(dismissMeeting, 20000);
+  });
+
   function pointAt(rect) {
+    reminderOwnsWand = false;
     pointing = true; hideBubble();
     els.strip.classList.add('free');                     // the thread leaves the strip: let it out of the bar
     if (strand) strand.setTarget(rect);
@@ -319,7 +421,17 @@
   });
   bridge.on('point:clear', () => { pendingBubble = null; if (pointing) { pointing = false; if (strand) strand.rewind(); } hideBubble(); render(); });
 
-  addEventListener('resize', () => { requestAnimationFrame(() => { aimMark(); if (strand) strand.relayout(); layout(); }); });
+  bridge.on('overlay:area', (area) => {
+    workArea = area;
+    const style = document.documentElement.style;
+    style.setProperty('--work-top', `${area.y}px`);
+    style.setProperty('--work-left', `${area.x}px`);
+    style.setProperty('--work-right', `${area.right}px`);
+    style.setProperty('--work-bottom', `${area.bottom}px`);
+    aimMark(); layout();
+    if (visible(els.reminder)) refreshClockTarget();
+  });
+  addEventListener('resize', () => { requestAnimationFrame(() => { aimMark(); layout(); if (strand) strand.relayout(); }); });
 
   if (/[?&]test=1/.test(location.search)) { const s = document.createElement('script'); s.src = 'testkit.js'; document.body.appendChild(s); }
 

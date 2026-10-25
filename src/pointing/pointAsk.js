@@ -16,6 +16,7 @@
 // An unfiltered whole-screen overview is never sent.
 
 const { sensitiveTarget } = require('./sensitive');
+const { positionTarget } = require('./positions');
 
 const SNAPSHOT_MS = 120000;
 const SPOT = 56;                 // the box drawn around "your spot", in screen pixels at 100%
@@ -47,6 +48,14 @@ function createPointAsk(d) {
 
   const bubble = (b) => d.overlay.send('point:bubble', b);
   const actions = () => [{ id: 'more', label: 'Ask more' }, { id: 'close', label: 'Close' }];
+
+  function highlight(rect, label) {
+    cur = { id: ++seq, ac: new AbortController(), snap: null, history: [], busy: false };
+    if (d.overlay.show) d.overlay.show();
+    d.ui.state('ready');
+    d.overlay.send('point:target', { rect, label });
+    bubble({ kicker: 'Wand', text: label, actions: [{ id: 'close', label: 'Close' }], anchor: 'tip' });
+  }
 
   function fail(session, text) {
     if (!cur || cur.id !== session.id) return;
@@ -102,6 +111,15 @@ function createPointAsk(d) {
   }
 
   return {
+    /** A local position request works without keys, a model, screen capture or computer control. */
+    pointPosition(text) {
+      const bounds = d.overlay.usableArea || (d.overlay.win && d.overlay.win.getBounds());
+      const target = positionTarget(text, bounds);
+      if (!target) return false;
+      this.close();
+      highlight(target.rect, target.label);
+      return true;
+    },
     /** The hotkey. Replaces whatever was pointed at before. */
     async trigger() {
       this.close();
@@ -149,30 +167,18 @@ function createPointAsk(d) {
     },
 
     /**
-     * Programmatically highlight a known element by its rect (physical screen pixels).
+     * Highlight a known element without taking a screenshot or asking a model.
      * Called automatically after a navigation task when the agent names a specific control.
      * @param {{x:number,y:number,w:number,h:number}} rect physical screen pixels
      * @param {{name?:string,type?:string,automationId?:string}|null} element
      * @param {{title?:string,process?:string}|null} win
      */
     async pointAt(rect, element, win, snapshotId, hwnd) {
+      if (!rect || !['x', 'y', 'w', 'h'].every((k) => Number.isFinite(rect[k])) || rect.w <= 0 || rect.h <= 0) return false;
       this.close();
-      const session = { id: ++seq, ac: new AbortController(), snap: null, history: [], busy: true };
-      cur = session;
-      const label = element && element.name ? `At: ${element.name}` : 'At that control';
-      d.ui.state('reading', { word: 'Looking', line: label });
+      highlight(d.overlay.physToOverlay(rect), element && element.name ? element.name : 'At that control');
+      const session = cur;
       try {
-        const center = { x: Math.round(rect.x + rect.w / 2), y: Math.round(rect.y + rect.h / 2) };
-        const shot = await d.capture.takeDisplay(center, { win: d.overlay.win });
-        if (cur !== session) return;
-        const crop = d.capture.cropAround(shot, rect, { pad: 200, minW: 800, minH: 500, maxW: 1400, maxH: 900 });
-        d.overlay.send('point:target', { rect: d.overlay.physToOverlay(rect), label: element && element.name ? element.name : '' });
-        session.snap = {
-          at: now(),
-          crop: crop.dataUrl,
-          element: element ? { name: element.name, type: element.type, automationId: element.automationId } : null,
-          window: win && win.title ? { title: win.title, process: win.process } : null,
-        };
         // Element-tracking: self-scheduling poll (no overlap, ≥150 ms gap) that keeps
         // the highlight pinned as the user scrolls.  Targets the exact hwnd.
         const trackName = element && element.name;
@@ -200,7 +206,7 @@ function createPointAsk(d) {
                 const nameLow = trackName.toLowerCase();
                 const match = elements.find(el => {
                   const n = String(el && el.name || '').toLowerCase();
-                  return n === nameLow || n.includes(nameLow) || nameLow.includes(n);
+                  return n && (n === nameLow || n.includes(nameLow) || nameLow.includes(n));
                 });
                 if (match && match.rect) {
                   // Only send a new target if the element moved more than 4 CSS px.
@@ -233,7 +239,7 @@ function createPointAsk(d) {
           setTimeout(track, 0);
           session.ac.signal.addEventListener('abort', () => { tracking = false; });
         }
-        const offFg = typeof d.sidecar.on === 'function'
+        const offFg = trackHwnd && d.sidecar && typeof d.sidecar.on === 'function'
           ? d.sidecar.on('fg', (ev) => {
               if (!cur || cur.id !== session.id) return;
               // hwnd 0 means nothing took focus (window was closed with no successor).
@@ -245,10 +251,11 @@ function createPointAsk(d) {
             })
           : null;
         if (offFg) session.ac.signal.addEventListener('abort', () => offFg());
-        await ask(session, element && element.name ? 'Tell me about the ' + element.name : '');
+        return true;
       } catch (e) {
         log(`pointAt: ${e.message}`);
         fail(session, `I couldn't look at that: ${String(e.message || e).slice(0, 100)}`);
+        return false;
       }
     },
 
