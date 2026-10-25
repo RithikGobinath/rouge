@@ -13,8 +13,8 @@ const CHECK_TIMEOUT_MS = 12000; // vision call timeout
 
 // Regex to extract YES / NO from the model response.
 const YES_RE = /^yes\b/i;
-// Regex to pull out a comma-separated field list after YES.
-const FIELDS_RE = /yes[^:.\n]*[:\s]+([^\n]+)/i;
+// Regex to pull out a comma-separated field list after YES (handles "YES.", "YES:", "YES -", etc.)
+const FIELDS_RE = /yes\W+([^\n]+)/i;
 
 /**
  * Parse field labels out of a model response like:
@@ -45,44 +45,42 @@ function parseFields(text) {
 function createDetector({ sidecar, ai, capture, onFormDetected, busy, log }) {
   const _log = log || (() => {});
   let timer = null;
-  let lastHwnd = 0;
-  const checked = new Set();    // hwnds we have already asked about
-  const detectedSet = new Set();// hwnds where a form was found and popup was fired
-  let pending = false;          // a screenshot + vision call is in flight
+  let stableHwnd = 0;       // hwnd that has been foreground for >= SETTLE_TICKS ticks
+  let stableTicks = 0;      // consecutive ticks on the same hwnd
+  const checked = new Set();    // hwnds already asked
+  const detectedSet = new Set();// hwnds where a form was found
+  let pending = false;
+
+  const SETTLE_TICKS = 2;   // 2 consecutive 1-second ticks = 2 s stable before we check
 
   async function checkWindow(hwnd, title) {
-    if (checked.has(hwnd) || detectedSet.has(hwnd)) return;
-    if (pending) return;
+    if (checked.has(hwnd) || detectedSet.has(hwnd) || pending) return;
+    if (busy && busy()) return;
     pending = true;
+    checked.add(hwnd);
     try {
-      // Wait for the page to finish loading.
-      await new Promise((r) => setTimeout(r, SETTLE_MS));
-
-      // Confirm the user is still on this window.
-      const fg2 = await sidecar.fg().catch(() => null);
-      if (!fg2 || fg2.hwnd !== hwnd) { _log(`autofill/detector: window changed during settle, skipping`); return; }
-      if (busy && busy()) { _log(`autofill/detector: busy, skipping`); return; }
-
-      checked.add(hwnd);
-
-      // Take a screenshot.
       const shot = await capture().catch((e) => { _log(`autofill/detector: screenshot failed: ${e.message}`); return null; });
       if (!shot) return;
 
       _log(`autofill/detector: vision check for "${title}" (hwnd=${hwnd})`);
-
-      // Ask Model A (haiku with vision).
       const result = await ai.explain({
         crop: shot,
-        question: 'Does this screen show a web form or application form with input fields for a person to fill in (like Name, Email, Phone, Address, Resume, Work Experience, etc.)? Start your answer with YES or NO. If YES, list ALL visible field labels separated by commas.',
+        question: [
+          'Does this screen show a web form or job application form with input fields to fill in (Name, Email, Phone, Address, Work History, etc.)?',
+          'Reply in EXACTLY one of these two formats and nothing else:',
+          'NO',
+          'YES: Legal First Name, Legal Last Name, Email Address, Phone Number',
+          '(replace the example labels with the actual visible field labels on screen, comma-separated)',
+        ].join(' '),
         signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
       }).catch((e) => { _log(`autofill/detector: vision call failed: ${e.message}`); return null; });
 
       if (!result) return;
       _log(`autofill/detector: vision response for "${title}": ${result.text}`);
 
-      if (YES_RE.test(result.text.trim())) {
-        const fields = parseFields(result.text);
+      const trimmed = result.text.trim();
+      if (YES_RE.test(trimmed)) {
+        const fields = parseFields(trimmed);
         detectedSet.add(hwnd);
         _log(`autofill/detector: form detected in "${title}" (hwnd=${hwnd}, fields=${fields.length})`);
         onFormDetected({ hwnd, windowTitle: title, fields });
@@ -99,11 +97,20 @@ function createDetector({ sidecar, ai, capture, onFormDetected, busy, log }) {
       const hwnd = fg && fg.hwnd;
       if (!hwnd) return;
 
-      if (hwnd !== lastHwnd) {
-        lastHwnd = hwnd;
-        const title = (fg && fg.title) || '';
-        // Fire the vision check asynchronously (doesn't block the tick).
-        checkWindow(hwnd, title).catch((e) => _log(`autofill/detector: checkWindow: ${e.message}`));
+      if (hwnd === stableHwnd) {
+        stableTicks++;
+        // Fire vision check once the window has been stable for SETTLE_TICKS.
+        if (stableTicks === SETTLE_TICKS && !checked.has(hwnd) && !detectedSet.has(hwnd)) {
+          const title = (fg && fg.title) || '';
+          // Skip system/transient windows that are never real forms.
+          const SKIP_RE = /^(?:task switching|task view|start|search|cortana|action center|notification|overlay|rouge)$/i;
+          if (SKIP_RE.test(title.trim())) { stableTicks = 0; return; }
+          checkWindow(hwnd, title).catch((e) => _log(`autofill/detector: checkWindow: ${e.message}`));
+        }
+      } else {
+        // Window changed — reset stability counter.
+        stableHwnd = hwnd;
+        stableTicks = 1;
       }
     } catch (e) {
       _log(`autofill/detector tick: ${e.message}`);

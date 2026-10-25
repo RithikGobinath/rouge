@@ -153,11 +153,9 @@ function build() {
   voiceDeps.profile = profile;    // voice session checks for profile-update utterances
 
   // Autofill: form detector + fill orchestrator.
-  const autofillExecutor = createAutofillExecutor({ sidecar, log });
   const autofill = createAutofill({
     profile, voice, ai, log,
     ui: { review: (p) => ui.review(p), notice: (t, o) => ui.notice(t, o) },
-    executor: autofillExecutor,
   });
 
   // Screenshot helper reused from calendar: hides the overlay and compresses to JPEG.

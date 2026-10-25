@@ -88,13 +88,22 @@ function createExecutor({ sidecar, log }) {
    * }} opts
    * @returns {Promise<{results: Array<{label:string, ok:boolean, error?:string}>, filled:number}>}
    */
-  async function fill({ hwnd, plan }) {
+  async function fill({ hwnd, windowTitle, plan }) {
     if (!plan || !plan.length) return { results: [], filled: 0 };
+
+    // Bring the target window to the foreground — the review overlay stole focus,
+    // and computerSnapshot needs the window to be active to read Chrome's accessibility tree.
+    try {
+      await sidecar.topmost(hwnd);
+      if (windowTitle) await sidecar.focusWindow(windowTitle, '').catch(() => {});
+      await new Promise((r) => setTimeout(r, 400));         // give Chrome time to activate
+    } catch (_) { /* best effort */ }
 
     // Take a fresh snapshot of the target window.
     let snapshot;
     try {
-      snapshot = await sidecar.computerSnapshot(hwnd);
+      // hwnd=0 snapshots whatever is now foreground (should be the Chrome window we just focused).
+      snapshot = await sidecar.computerSnapshot(0);
     } catch (e) {
       _log(`autofill/executor: snapshot failed: ${e.message}`);
       return { results: plan.map((p) => ({ label: p.label, ok: false, error: 'Could not inspect the window.' })), filled: 0 };

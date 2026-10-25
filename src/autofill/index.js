@@ -34,15 +34,14 @@ function parsePlan(text) {
 
 /**
  * @param {{
- *   profile:  { profileForAutofill: () => object },
- *   voice:    { ask: (card:object) => Promise<boolean> },
- *   ai:       { answer: (q:string, opts?:object) => Promise<{text:string}> },
- *   ui:       { review: (payload:object) => Promise<Array|null>, notice: (t:string, o:object) => void },
- *   executor: { fill: (opts:object) => Promise<object> },
- *   log?:     Function,
+ *   profile: { profileForAutofill: () => object },
+ *   voice:   { ask: (card:object) => Promise<boolean>, runText: (cmd:string) => Promise<boolean> },
+ *   ai:      { answer: (q:string, opts?:object) => Promise<{text:string}> },
+ *   ui:      { review: (payload:object) => Promise<Array|null>, notice: (t:string, o:object) => void },
+ *   log?:    Function,
  * }} deps
  */
-function createAutofill({ profile, voice, ai, ui, executor, log }) {
+function createAutofill({ profile, voice, ai, ui, log }) {
   const _log = log || (() => {});
 
   /**
@@ -120,18 +119,22 @@ function createAutofill({ profile, voice, ai, ui, executor, log }) {
     }
     if (!accepted || !accepted.length) return { filled: 0 };   // user cancelled or deselected all
 
-    // 4. Execute the accepted fields.
+    // 4. Delegate to the computer agent (Model B) via voice.runText.
+    // The computer agent already knows how to activate Chrome's accessibility tree
+    // and fill form fields — it is the proven path. Our custom executor is not needed.
     try {
-      const { results, filled } = await executor.fill({ hwnd: formInfo.hwnd, plan: accepted });
-      const failed = results.filter((r) => !r.ok);
-      if (filled > 0) {
-        ui.notice(`Filled ${filled} field${filled !== 1 ? 's' : ''}.${failed.length ? ` ${failed.length} could not be reached.` : ''}`, { tone: 'info' });
-      } else {
-        ui.notice('None of the fields could be filled. The window may have changed.', { tone: 'error' });
-      }
-      return { filled };
+      const fieldList = accepted.map((f) => `- ${f.label}: ${f.value}`).join('\n');
+      const cmd = [
+        `Fill the following form fields on the current web page. Match each by its visible label.`,
+        `Do NOT click Submit, Continue, or Next.\n`,
+        fieldList,
+      ].join('\n');
+      _log(`autofill: sending fill command to computer agent:\n${cmd}`);
+      voice.runText(cmd).catch((e) => _log(`autofill: runText: ${e.message}`));
+      ui.notice(`Filling ${accepted.length} field${accepted.length !== 1 ? 's' : ''}…`, { tone: 'info' });
+      return { filled: accepted.length };
     } catch (e) {
-      _log(`autofill: executor error: ${e.message}`);
+      _log(`autofill: fill command error: ${e.message}`);
       ui.notice('Fill did not complete. Please try again.', { tone: 'error' });
       return { filled: 0 };
     }
