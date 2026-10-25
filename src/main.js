@@ -248,8 +248,11 @@ async function boot() {
 
   registerIpc({
     store, overlay, ui, panel, pointAsk, folders, routines, buildState, runRoutine, quit: () => app.quit(),
-    clockRect: () => systemClockRect({ helper: path.join(app.getPath('userData'), 'bin', 'menu-clock'), sidecar,
-      display: screen.getPrimaryDisplay().bounds, overlayBounds: overlay.win.getBounds(), physicalToDip: (p) => screen.screenToDipPoint(p) }),
+    clockRect: () => {
+      const display = screen.getPrimaryDisplay();
+      return systemClockRect({ helper: path.join(app.getPath('userData'), 'bin', 'menu-clock'), sidecar,
+        display: display.bounds, workArea: display.workArea, overlayBounds: overlay.win.getBounds(), physicalToDip: (p) => screen.screenToDipPoint(p) });
+    },
     onCommandText: (text) => {
       voice.runText(text).then((ok) => {
         if (!ok) ui.notice('I am still answering your previous request.', { tone: 'info' });

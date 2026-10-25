@@ -2,10 +2,11 @@
 const { execFile } = require('node:child_process');
 
 /** One metadata query per reminder; no capture, input, model or resident helper. */
-async function systemClockRect({ platform = process.platform, helper, sidecar, display, overlayBounds, physicalToDip, run = execFile }) {
+async function systemClockRect({ platform = process.platform, helper, sidecar, display, workArea, overlayBounds, physicalToDip, run = execFile }) {
   let rect;
   if (platform === 'darwin') {
-    rect = await new Promise((resolve) => run(helper, [], { timeout: 1500, maxBuffer: 1024 }, (error, stdout) => {
+    const args = [display.x, display.y, display.width, display.height, workArea ? workArea.y - display.y : 0].map(String);
+    rect = await new Promise((resolve) => run(helper, args, { timeout: 1500, maxBuffer: 1024 }, (error, stdout) => {
       try { resolve(error ? null : JSON.parse(stdout)); } catch (_) { resolve(null); }
     }));
   } else if (platform === 'win32' && sidecar.available) {

@@ -47,16 +47,22 @@ retries loading it automatically.
 - macOS: a tiny native reader queries visible Control Center menu-window bounds
   once per reminder (and again if display geometry changes). It identifies the
   [clock pinned to the right end of the primary menu bar](https://support.apple.com/en-gb/guide/mac-help/mchlp1446/mac) without reading window
-  titles, taking screenshots, requesting permissions, or using a model. There
-  is no resident process or polling timer. `npm run dev:mac` compiles the helper
+  titles, taking screenshots, requesting permissions, or using a model. Electron
+  passes the primary display bounds and menu-bar height to the helper: a child
+  process cannot reliably discover its own display. If window metadata is absent,
+  the helper measures the current time using the Mac's clock preferences and
+  menu-bar font, then targets that time at the right edge. This fallback uses
+  stock macOS clock alignment and conservative padding; custom clock replacements
+  can require different bounds. It never targets or measures the popup time.
+  There is no resident process or polling timer. `npm run dev:mac` compiles the helper
   once with Apple's Command Line Tools and reuses it until its source changes;
   its binary stays in the development app-data directory, outside the repo.
 - Windows: the existing sidecar reads the native taskbar clock rectangle, with
   UI Automation for the Windows 11 clock. Physical pixels convert to overlay
   coordinates using the existing Electron DPI conversion.
 - A hidden, missing, ambiguous or off-display clock produces the popup with
-  “System clock unavailable” and no wand target. Rouge never guesses a corner,
-  substitutes the popup time, moves the mouse, or opens the clock. This geometry
+  “System clock unavailable” and no wand target. Rouge never substitutes the popup
+  time, moves the mouse, or opens the clock. This geometry
   lookup uses the modern macOS clock placement and needs owner visual validation
   on the actual OS; customized taskbars/menu bars may not expose a usable clock.
 - A small journal in the app-data directory stores occurrence hashes and start
@@ -92,7 +98,10 @@ fake clocks and a canvas stub. They exercise the lead time, simultaneous events,
 file changes, restart deduplication, wake recovery, DST, invalid input, watcher
 cleanup, journal errors, system-clock coordinate conversion, dismissal races,
 priority over the reminder, and edge-safe animation settling without live input
-or API calls. The clock reader compiles on this Mac. Live menu-bar and Windows
-taskbar placement checks remain for the owner.
+or API calls. The clock reader compiles on this Mac. A live lookup in the running
+Rouge process now resolves a valid region at the menu-bar time instead of
+returning no target. Native helper checks cover three display sizes and a
+hidden menu bar. Those diagnostics used no calendar event or screen capture. Pixel alignment and Windows taskbar placement remain for owner
+visual validation.
 Live notification timing against the owner's actual calendar still depends on
 that private snapshot being present at the configured path.
