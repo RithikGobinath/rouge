@@ -39,6 +39,7 @@ const { sensitiveTarget } = require('./pointing/sensitive');
 const { prepareCache } = require('./calendar/conflict');
 const { createCalendarWatch, startVisionModel } = require('./calendar/watch');
 const { createMeetingReminders } = require('./calendar/reminders');
+const { createTestCalendar } = require('./calendar/testCalendar');
 const { createOverlay } = require('./app/overlay');
 const { createOverlayUi } = require('./app/overlayUi');
 const { createHotkeys, spoken } = require('./app/hotkeys');
@@ -117,7 +118,9 @@ function build() {
     return jev;
   };
 
+  const testCalendar = createTestCalendar();
   const voiceDeps = { speech, ui, executor, routines, folders, ai, getJev, apps, sidecar, settings: () => store.settings(), log, calendar: null,
+    addTestMeeting: (text) => { const result = testCalendar.command(text); if (result && result.ok) reminders.refresh(); return result; },
     // End-to-end tests only: hear a WAV instead of the microphone.
     listenFile: () => (process.env.CLIPPY_E2E === '1' ? process.env.CLIPPY_E2E_WAV : undefined) };
   voice = createVoice(voiceDeps);
@@ -152,6 +155,7 @@ function build() {
   voiceDeps.calendar = calendar;
   const reminders = createMeetingReminders({
     file: calendarPaths().cacheFile, stateFile: path.join(dir, 'meeting-reminders.json'),
+    extraEvents: () => testCalendar.events(),
     notify: (events) => { overlay.show(); overlay.send('calendar:reminder', { events }); },
     onStatus: (status) => log(`meeting reminders: ${status}`),
   });

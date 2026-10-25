@@ -25,11 +25,12 @@ function meetingEvents(snapshot) {
   return [...events.values()].sort((a, b) => a.startMs - b.startMs);
 }
 
-function createMeetingReminders({ file, stateFile, notify, onStatus = () => {}, now = Date.now,
+function createMeetingReminders({ file, stateFile, notify, extraEvents = () => [], onStatus = () => {}, now = Date.now,
   io = fs, watch = fs.watch, setTimer = setTimeout, clearTimer = clearTimeout }) {
   let events = []; let seen = {}; let timer = null; let watcher = null; let stopped = true;
   const emitter = new EventEmitter();
   let watching = false; let persistenceError = false;
+  let sourceStatus = null; let hasTestEvents = false;
   let status = 'stopped';
   const report = (value) => { if (status === value) return; status = value; onStatus(value); emitter.emit('change'); };
   const cancelTimer = () => { if (timer !== null) clearTimer(timer); timer = null; };
@@ -59,23 +60,27 @@ function createMeetingReminders({ file, stateFile, notify, onStatus = () => {}, 
     }
     const next = pending.find((event) => !Object.hasOwn(seen, event.key));
     if (next) timer = setTimer(reconcile, Math.min(MAX_DELAY, Math.max(1, next.startMs - LEAD_MS - now())));
-    report(persistenceError ? 'persistence_error' : watching ? 'ready' : 'watch_error');
+    report(persistenceError ? 'persistence_error' : !watching ? 'watch_error' : sourceStatus ? (hasTestEvents ? 'test_only' : sourceStatus) : 'ready');
   }
 
   function refresh() {
     cancelTimer();
     if (stopped) return;
+    sourceStatus = null; events = [];
     try {
       if (io.statSync(file).size > MAX_BYTES) throw new Error('calendar_too_large');
       const snapshot = JSON.parse(io.readFileSync(file, 'utf8'));
       events = meetingEvents(snapshot);
       const coverageEnd = snapshot.coverageEnd && Date.parse(snapshot.coverageEnd);
-      if (Number.isFinite(coverageEnd) && coverageEnd <= now()) { events = []; report('stale'); return; }
-      reconcile();
+      if (Number.isFinite(coverageEnd) && coverageEnd <= now()) { events = []; sourceStatus = 'stale'; }
     } catch (error) {
       events = [];
-      report(error.code === 'ENOENT' ? 'missing' : 'invalid');
+      sourceStatus = error.code === 'ENOENT' ? 'missing' : 'invalid';
     }
+    const temporary = meetingEvents({ events: extraEvents() });
+    hasTestEvents = temporary.some((event) => event.startMs > now());
+    events = [...events, ...temporary].sort((a, b) => a.startMs - b.startMs);
+    reconcile();
   }
 
   function start() {

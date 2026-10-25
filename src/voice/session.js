@@ -474,6 +474,14 @@ function createVoice(d) {
       return true;
     }
     if (run || hearing) return false;
+    if (d.addTestMeeting) {
+      const result = d.addTestMeeting(text);
+      if (result) {
+        d.ui.transcript(text, { final: true });
+        d.ui.say(result.message, { kicker: 'Test calendar' });
+        return true;
+      }
+    }
     const r = newRun('text');
     run = r; r.text = text; r.released = true;
     try {

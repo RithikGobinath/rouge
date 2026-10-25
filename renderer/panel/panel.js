@@ -161,6 +161,7 @@
     if (S.development) $('#voice-line').textContent = 'Voice, hotkeys and computer controls are disabled during Mac development. Click the ribbon to type.';
     const reminders = S.reminders || {};
     const reminderStatus = { ready: 'On · 15 minutes before meetings', stopped: 'Starting', missing: 'calendar.json was not found', invalid: 'calendar.json could not be read', stale: 'Calendar snapshot has expired', watch_error: 'Calendar updates cannot be watched', delivery_error: 'Reminder could not be displayed', persistence_error: 'Reminders work, but repeat protection could not be saved' };
+    reminderStatus.test_only = 'Test meetings active; the real calendar snapshot is unavailable';
     $('#calendar-line').textContent = `Meeting reminders: ${reminderStatus[reminders.status] || 'Unavailable'}. Local calendar only; no model calls.`;
     $('#calendar-line').title = reminders.file || '';
     for (const id of ['#tg-speak', '#tg-login', '#reset-keys']) $(id).disabled = Boolean(S.development);

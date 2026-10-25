@@ -50,6 +50,21 @@ the previously added Mac launcher and position-only wand commands.
 
 ## Validation
 
+In Rouge's textbox, enter `add meeting to calendar at 11:30 pm on oct 24`.
+The command accepts a 12-hour AM/PM time, an optional `:MM`, a month name and
+day, and an optional year. Without a year it uses the current local year;
+past or invalid dates are rejected instead of silently moving to next year.
+It uses the computer's local timezone and reports the resolved time.
+
+This adds a 30-minute **Test meeting** to an in-memory test calendar, merged
+into the same reminder scheduler. It never writes the real `calendar.json`,
+works even when that snapshot is missing, and requires no model or key.
+If the start is less than 15 minutes away, the reminder appears immediately
+with the actual remaining minutes. Otherwise it fires 15 minutes before the
+specified start. Repeating the same time does not add a duplicate. Test events
+are removed when Rouge quits; expired events are pruned on the next command
+or calendar refresh. No extra watcher or timer is created for this command.
+
 The new scheduler and wrapped-strand checks use synthetic local calendar data,
 fake clocks and a canvas stub. They exercise the lead time, simultaneous events,
 file changes, restart deduplication, wake recovery, DST, invalid input, watcher
