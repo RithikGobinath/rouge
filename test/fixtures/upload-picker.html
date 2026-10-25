@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Rouge upload capture fixture</title>
+<label for="pdf">PDF upload</label>
+<div><input id="pdf" type="file" accept="application/pdf"></div>
+<p id="result" role="alert"></p>
+<script>
+  document.querySelector('#pdf').addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    // Produces accessible text matching SIZE_ERROR_RE in src/uploads/capture.js:
+    //   "File too large. Maximum file size: 2 MB."
+    // Open this page in a supported browser while Rouge runs to validate that
+    // the sidecar-based upload watcher detects the rejection text via uiaList().
+    document.querySelector('#result').textContent = file && file.size > 2000000
+      ? 'File too large. Maximum file size: 2 MB.' : '';
+  });
+</script>

@@ -1,6 +1,6 @@
 # PDF upload size recovery — feature plan
 
-Status: planning only; no feature implementation.
+Status: automatic native-picker path capture implemented; live Windows validation pending. Compression, rejection detection and recovery UI remain planned. See [automatic capture implementation](AUTOMATIC_PDF_CAPTURE.md).
 Branch: `codex/pdf-upload-compression`
 Base: `main` at `d7f8a1eabdf8b6f9efa4d4785386339e06bb3b71`
 Date: 2026-10-25 (America/Los_Angeles)
@@ -184,3 +184,4 @@ The plan adds no running app behavior and executes no test/model/desktop action.
 5. Perform owner-authorized fidelity and Windows upload validation.
 
 Defaults proposed for review: Windows first; local processing; copy beside the original; manual re-upload; reject protected/interactive PDFs; 5% size margin; a fixed three-tier quality floor. File detection cannot be universal without browser integration, and some PDFs cannot fit an arbitrary limit while remaining readable.
+
