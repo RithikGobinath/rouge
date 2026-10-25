@@ -832,6 +832,7 @@ function Computer-Row($row) {
   $out = @{ ref = $row.Ref; name = $row.Name; type = $row.Type }
   if ($row.Focused) { $out.focused = $true }
   if ($null -ne $row.Value) { $out.value = $row.Value }
+  if ($row.W -gt 0 -and $row.H -gt 0) { $out.rect = @{ x = [int]$row.X; y = [int]$row.Y; w = [int]$row.W; h = [int]$row.H } }
   return $out
 }
 function Computer-Failure($fault) {
