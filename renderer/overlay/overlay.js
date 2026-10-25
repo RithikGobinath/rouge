@@ -368,7 +368,9 @@
   bridge.on('ui:ask', (m) => {
     askId = m.id;
     const kicker = m.card.kicker || 'Check first';
-    els.ask.setAttribute('aria-label', kicker);
+    // A solo card is only its button; the title stays as the label for screen readers.
+    els.ask.classList.toggle('solo', Boolean(m.card.solo));
+    els.ask.setAttribute('aria-label', m.card.solo ? m.card.title : kicker);
     $('#ask-kicker').textContent = kicker;
     $('#ask-title').textContent = m.card.title; $('#ask-hint').textContent = m.card.hint;
     $('#ask-yes').textContent = m.card.yes || 'Go ahead'; $('#ask-no').textContent = m.card.no || 'Not now';

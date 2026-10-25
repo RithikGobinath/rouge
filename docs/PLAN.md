@@ -15,6 +15,7 @@ Last updated: 2026-10-24
 - [x] Anthropic key saved in app data
 
 ## In progress
+- [ ] Look up highlighted text (docs/LOOKUP.md): code and fake-backed tests written on codex/highlight-lookup; tests not run, helper selection call not validated live
 - [ ] Rouge frontend UI/UX from ROUGE_BACKEND_HANDOFF.md (3D knot companion, tasks, email)
 - [ ] Auto-wand reliability: element name matching and 'cant use wand' error
 
