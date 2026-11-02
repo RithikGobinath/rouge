@@ -1,66 +1,40 @@
 # Rouge
 
-Rouge is a minimal Windows desktop companion, shown as an animated red ribbon. It accepts typed or spoken requests, answers questions, and uses Windows accessibility controls for computer tasks.
+Rouge is an early-stage Windows desktop companion represented by an animated red ribbon. It accepts typed and spoken requests, answers questions, and can use Windows accessibility controls to carry out computer tasks.
 
-This is an early development version. The safety and reliability findings in [the audit](docs/AUDIT.md) remain open until the corresponding changes are reviewed and validated.
+**Development status:** Safety and reliability findings in the [audit](docs/AUDIT.md) remain open until the corresponding changes have been reviewed and validated.
 
-## Run locally
+## Getting started
 
-Requirements: Windows, Node.js 22 or newer, and an Anthropic API key entered through the app's settings.
+Rouge requires Windows, Node.js 22 or later, and an Anthropic API key. Enter the key in the application's settings after launch.
 
 ```powershell
 npm ci
 npm start
 ```
 
-For UI and typed-chat development on macOS, use `npm run dev:mac`. This opt-in
-mode disables the computer agent, all shortcut actions, Windows speech/hotkeys,
-and background screen/calendar watching. It does not change Windows startup.
-An Anthropic key is still required for model replies.
+Keys are stored using Electron's operating-system encryption. Do not put credentials in source files, documentation, command arguments, or commits.
 
-The Mac launcher prepares a local development entry inside the installed
-Electron bundle and opens it through macOS. Development settings and encrypted
-keys stay in `../rouge-user-data`, separate from a normal installation. Quit the
-Electron app before relaunching after backend edits. `npm ci` replaces the
-installed runtime; `npm run dev:mac` recreates its development entry.
+### macOS development
 
-The wand can point to screen positions locally, including in Mac development
-mode with no API key: type `point to the top left corner`, `point to the bottom
-right corner`, `point to the center`, or simply `top left corner`. Corners,
-edge midpoints, and the center refer to the primary display's usable area.
-These requests make no model calls, screenshots, clicks, or mouse movements.
-Type `stop` or click the wand's Close button to retract it. Known control
-rectangles supplied by the computer agent also highlight without vision;
-the explicit point-and-ask hotkey still uses its existing visual explanation.
+For interface and typed-chat development on macOS, run `npm ci` followed by `npm run dev:mac`. This opt-in mode disables the computer agent, shortcut actions, Windows speech and hotkeys, and background screen and calendar watching. An Anthropic key is still needed for model replies.
 
-When the wand points at something, the upper curve of the ribbon unwinds from the knot and winds twice around the
-target, with the last lap lying tight against it. It stays for 4 seconds plus about 55 ms per character of the
-explanation shown with it (at most 15 seconds), then draws back in. If the pointed-at control moves because its
-window scrolls, the wand follows it.
+The launcher creates a development entry in the installed Electron bundle. Development settings and encrypted keys are stored separately in `../rouge-user-data`. Quit the app before relaunching after backend changes. Running `npm ci` replaces the installed runtime; `npm run dev:mac` recreates the development entry.
 
-Meeting reminders read the existing local `calendar.json` and alert 15 minutes
-before timed events, extending the wand to a flowing underline at the computer's current-time clock. They
-also work in Mac development mode without any model. See
-[meeting reminder setup and behavior](docs/MEETING-REMINDERS.md) for the calendar
-path and validation details.
+## Features
 
-Keys are saved using Electron's operating-system encryption. Never put credentials in source files, documentation, command arguments, or commits.
-
-Existing installations keep the internal `Clippy` data directory and Windows app identifier for compatibility. Rouge is the product name; some internal identifiers and older source strings still use the previous development name.
+- **Conversation and computer tasks:** Ask questions by text or voice, or request actions using Windows accessibility controls.
+- **Pointing:** Ask Rouge to point to a screen position, such as `point to the top left corner` or `point to the center`. These local position requests work without an API key and do not make model calls, take screenshots, or move the mouse. Type `stop` or use the wand's Close button to retract it. The wand can also highlight known controls supplied by the computer agent and follow a control as it moves.
+- **Meeting reminders:** Timed events in the local `calendar.json` can trigger a reminder 15 minutes before the event. See [meeting reminder setup](docs/MEETING-REMINDERS.md) for the calendar location and details.
 
 ## Architecture
 
-- Electron renders the companion and settings panel; Node.js coordinates requests.
-- Model A answers simple questions or chooses B/C in its first response.
-- Model B handles ordinary delegated work; C handles harder reasoning.
-- Interactive work continues with the selected worker through a bounded observe/act loop.
-- A persistent Windows helper supplies accessible text and controls and delivers validated input.
-- The local visual model D and a browser-specific integration are planned, not implemented.
+Electron renders the companion and settings interface; Node.js coordinates requests. Model A answers simple questions or routes a request to model B or C in its first response. Delegated computer work continues with the selected model through a bounded observe-and-act loop. A persistent Windows helper provides accessible text and controls and delivers validated input.
 
-Read [project context](docs/CONTEXT.md) for decisions and [the handoff](docs/HANDOFF.md) for the precise development state.
+The local visual model D and browser-specific integration are planned, not implemented. See [project context](docs/CONTEXT.md) for design decisions and the [handoff](docs/HANDOFF.md) for development details.
+
+Existing installations retain the internal `Clippy` data directory and Windows app identifier for compatibility. Some internal identifiers and older source strings also retain the previous development name.
 
 ## Validation
 
-`npm test` includes real Windows interaction tests. Do not run it casually: some tests move focus and send actual input. The owner has asked to perform live testing personally.
-
-The initial GitHub import was not validated by executing tests, model requests, or desktop tasks. Audit-fix implementation lives on `cursor/audit-fixes-27d8` and must not be treated as validated until the owner reviews and runs the Windows suite.
+The owner performs live testing. `npm test` includes Windows interaction tests that can move focus and send input, so do not run the full suite casually. The initial GitHub import was not validated through tests, model requests, or desktop tasks. Audit-fix candidates on `cursor/audit-fixes-27d8` remain unvalidated until owner review and Windows testing.
